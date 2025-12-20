@@ -9,12 +9,16 @@ from langchain_community.llms import Ollama
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
+from qlora_trainer import QLoRATrainer
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})  # Enable CORS for all API routes from any origin
 
 # Initialize RAG Processor
 rag_processor = RAGProcessor()
+
+# Initialize QLoRA Trainer
+qlora_trainer = QLoRATrainer()
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
@@ -46,7 +50,7 @@ def health():
 
 @app.route('/api/models', methods=['GET'])
 def list_models():
-    """Get list of available Ollama models"""
+    """Get list of available Ollama models (including fine-tuned)"""
     try:
         # Run ollama list command
         result = subprocess.run(
@@ -56,29 +60,38 @@ def list_models():
             timeout=10
         )
         
-        if result.returncode != 0:
-            return jsonify({
-                'error': 'Failed to list Ollama models',
-                'details': result.stderr,
-                'models': []
-            }), 500
-        
-        # Parse the output
-        lines = result.stdout.strip().split('\n')
         models = []
         
-        # Skip the header line (if present)
-        for line in lines[1:]:
-            if line.strip():
-                parts = line.split()
-                if len(parts) >= 1:
-                    model_name = parts[0]
-                    # Extract size if available
-                    size = parts[1] if len(parts) > 1 else None
-                    models.append({
-                        'name': model_name,
-                        'size': size
-                    })
+        if result.returncode == 0:
+            # Parse the output
+            lines = result.stdout.strip().split('\n')
+            
+            # Skip the header line (if present)
+            for line in lines[1:]:
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 1:
+                        model_name = parts[0]
+                        # Extract size if available
+                        size = parts[1] if len(parts) > 1 else None
+                        models.append({
+                            'name': model_name,
+                            'size': size
+                        })
+        
+        # Also include fine-tuned models that are ready
+        try:
+            fine_tuned = qlora_trainer.list_trained_models()
+            for model in fine_tuned:
+                if model['ollama_ready']:
+                    # Check if already in list
+                    if not any(m['name'] == model['name'] for m in models):
+                        models.append({
+                            'name': model['name'],
+                            'size': None
+                        })
+        except:
+            pass
         
         return jsonify({
             'models': models,
@@ -324,6 +337,78 @@ Context from uploaded documents:
     
     except Exception as e:
         return jsonify({'error': f'Error processing chat: {str(e)}'}), 500
+
+@app.route('/api/qlora/train', methods=['POST'])
+def qlora_train():
+    """Start QLoRA fine-tuning"""
+    try:
+        data = request.get_json()
+        base_model = data.get('base_model', 'unsloth/Llama-3.2-3B-Instruct-bnb-4bit')
+        model_name = data.get('model_name', '').strip()
+        lora_rank = data.get('lora_rank', 16)
+        max_steps = data.get('max_steps', 100)
+        learning_rate = data.get('learning_rate', 0.0002)
+        
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
+        
+        # Check if training is already in progress
+        if qlora_trainer.training_status['status'] == 'training':
+            return jsonify({'error': 'Training already in progress'}), 400
+        
+        # Start training
+        qlora_trainer.train_model(
+            base_model=base_model,
+            model_name=model_name,
+            lora_rank=lora_rank,
+            max_steps=max_steps,
+            learning_rate=learning_rate
+        )
+        
+        return jsonify({
+            'message': 'Training started',
+            'model_name': model_name
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'error': f'Error starting training: {str(e)}'}), 500
+
+@app.route('/api/qlora/status', methods=['GET'])
+def qlora_status():
+    """Get QLoRA training status"""
+    try:
+        return jsonify(qlora_trainer.training_status), 200
+    except Exception as e:
+        return jsonify({'error': f'Error getting status: {str(e)}'}), 500
+
+@app.route('/api/qlora/models', methods=['GET'])
+def qlora_models():
+    """List all fine-tuned models"""
+    try:
+        models = qlora_trainer.list_trained_models()
+        return jsonify({'models': models}), 200
+    except Exception as e:
+        return jsonify({'error': f'Error listing models: {str(e)}'}), 500
+
+@app.route('/api/qlora/convert', methods=['POST'])
+def qlora_convert():
+    """Convert fine-tuned model to Ollama format"""
+    try:
+        data = request.get_json()
+        model_path = data.get('model_path', '').strip()
+        
+        if not model_path:
+            return jsonify({'error': 'Model path is required'}), 400
+        
+        ollama_model_name = qlora_trainer.convert_to_ollama(model_path)
+        
+        return jsonify({
+            'message': 'Model converted successfully',
+            'ollama_model_name': ollama_model_name
+        }), 200
+    
+    except Exception as e:
+        return jsonify({'error': f'Error converting model: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)

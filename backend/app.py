@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
+import subprocess
 from werkzeug.utils import secure_filename
 from datetime import datetime
 from rag_processor import RAGProcessor
@@ -42,6 +43,63 @@ def health():
         'status': 'healthy',
         'service': 'Flask Backend'
     })
+
+@app.route('/api/models', methods=['GET'])
+def list_models():
+    """Get list of available Ollama models"""
+    try:
+        # Run ollama list command
+        result = subprocess.run(
+            ['ollama', 'list'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            return jsonify({
+                'error': 'Failed to list Ollama models',
+                'details': result.stderr,
+                'models': []
+            }), 500
+        
+        # Parse the output
+        lines = result.stdout.strip().split('\n')
+        models = []
+        
+        # Skip the header line (if present)
+        for line in lines[1:]:
+            if line.strip():
+                parts = line.split()
+                if len(parts) >= 1:
+                    model_name = parts[0]
+                    # Extract size if available
+                    size = parts[1] if len(parts) > 1 else None
+                    models.append({
+                        'name': model_name,
+                        'size': size
+                    })
+        
+        return jsonify({
+            'models': models,
+            'count': len(models)
+        }), 200
+    
+    except FileNotFoundError:
+        return jsonify({
+            'error': 'Ollama not found. Please make sure Ollama is installed and in your PATH.',
+            'models': []
+        }), 503
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'error': 'Timeout while listing models',
+            'models': []
+        }), 500
+    except Exception as e:
+        return jsonify({
+            'error': f'Error listing models: {str(e)}',
+            'models': []
+        }), 500
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -143,13 +201,14 @@ def chat():
     try:
         data = request.get_json()
         query = data.get('message', '').strip()
+        model_name = data.get('model', 'qwen3:14b')  # Default model or from request
         
         if not query:
             return jsonify({'error': 'No message provided'}), 400
         
         # Check if Ollama is available
         try:
-            llm = Ollama(model="qwen3:14b")
+            llm = Ollama(model=model_name)
         except Exception as e:
             # Fallback to simple retrieval if Ollama is not available
             results = rag_processor.search_similar(query, k=4)

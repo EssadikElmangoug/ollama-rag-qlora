@@ -16,6 +16,9 @@ const ChatPage = () => {
   ])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [models, setModels] = useState([])
+  const [selectedModel, setSelectedModel] = useState('')
+  const [loadingModels, setLoadingModels] = useState(true)
   const messagesEndRef = useRef(null)
 
   const scrollToBottom = () => {
@@ -25,6 +28,48 @@ const ChatPage = () => {
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  // Load available models on mount
+  useEffect(() => {
+    const loadModels = async () => {
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/models`)
+        if (response.ok) {
+          const data = await response.json()
+          setModels(data.models || [])
+          // Set default model if available and no saved model
+          if (data.models && data.models.length > 0 && !selectedModel) {
+            const defaultModel = data.models[0].name
+            setSelectedModel(defaultModel)
+            localStorage.setItem('selectedModel', defaultModel)
+          }
+        } else {
+          // Try to load from localStorage if API fails
+          const savedModel = localStorage.getItem('selectedModel')
+          if (savedModel) {
+            setSelectedModel(savedModel)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading models:', error)
+        // Try to load from localStorage
+        const savedModel = localStorage.getItem('selectedModel')
+        if (savedModel) {
+          setSelectedModel(savedModel)
+        }
+      } finally {
+        setLoadingModels(false)
+      }
+    }
+
+    // Load saved model from localStorage first
+    const savedModel = localStorage.getItem('selectedModel')
+    if (savedModel) {
+      setSelectedModel(savedModel)
+    }
+
+    loadModels()
+  }, [])
 
   const handleSend = async (e) => {
     e.preventDefault()
@@ -46,7 +91,10 @@ const ChatPage = () => {
       const response = await fetch(`${BACKEND_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: userMessage.text })
+        body: JSON.stringify({ 
+          message: userMessage.text,
+          model: selectedModel || 'qwen3:14b'
+        })
       })
 
       if (!response.ok) {
@@ -98,7 +146,7 @@ const ChatPage = () => {
       <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 py-4">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1">
               <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
                 Chat
               </h1>
@@ -106,26 +154,56 @@ const ChatPage = () => {
                 Start a conversation
               </p>
             </div>
-            <Link
-              href="/rag"
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors group"
-              title="Documents"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6 text-slate-600 dark:text-slate-300 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
+            <div className="flex items-center gap-3">
+              {/* Model Selector */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="model-select" className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                  Model:
+                </label>
+                <select
+                  id="model-select"
+                  value={selectedModel}
+                  onChange={(e) => {
+                    setSelectedModel(e.target.value)
+                    localStorage.setItem('selectedModel', e.target.value)
+                  }}
+                  disabled={loadingModels || isLoading}
+                  className="px-3 py-1.5 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loadingModels ? (
+                    <option>Loading models...</option>
+                  ) : models.length === 0 ? (
+                    <option value="">No models available</option>
+                  ) : (
+                    models.map((model) => (
+                      <option key={model.name} value={model.name}>
+                        {model.name} {model.size ? `(${model.size})` : ''}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+              <Link
+                href="/rag"
+                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors group"
+                title="Documents"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                />
-              </svg>
-            </Link>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-6 w-6 text-slate-600 dark:text-slate-300 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                  />
+                </svg>
+              </Link>
+            </div>
           </div>
         </div>
       </header>

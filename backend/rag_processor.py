@@ -3,11 +3,11 @@ RAG Processing Module
 Handles document ingestion, chunking, embedding, and retrieval
 """
 import os
-from langchain.document_loaders import PyPDFLoader, TextLoader
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
-from langchain_community.document_loaders import Docx2txtLoader, UnstructuredExcelLoader
+from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+from langchain_text_splitters import CharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document as LangchainDocument
 from docx import Document
 import pandas as pd
 
@@ -55,7 +55,6 @@ class RAGProcessor:
                 print(f"Error loading vector store: {e}. Creating new one.")
         
         # Create empty vector store with a minimal document
-        from langchain.schema import Document as LangchainDocument
         dummy_doc = LangchainDocument(page_content="placeholder", metadata={})
         vectorstore = FAISS.from_documents([dummy_doc], self.embeddings)
         return vectorstore
@@ -79,7 +78,6 @@ class RAGProcessor:
                 df = pd.read_excel(filepath)
                 # Convert to text
                 text_content = df.to_string()
-                from langchain.schema import Document as LangchainDocument
                 documents = [LangchainDocument(
                     page_content=text_content,
                     metadata={"source": filepath, "type": "excel"}
@@ -88,7 +86,6 @@ class RAGProcessor:
                 # Load CSV file
                 df = pd.read_csv(filepath)
                 text_content = df.to_string()
-                from langchain.schema import Document as LangchainDocument
                 documents = [LangchainDocument(
                     page_content=text_content,
                     metadata={"source": filepath, "type": "csv"}

@@ -25,7 +25,7 @@ class RAGProcessor:
         
         # Initialize embeddings
         self.embeddings = HuggingFaceEmbeddings(
-            model_name=embedding_model_name,
+            model_name=self.embedding_model_name,
             model_kwargs={"device": "cpu"}  # Use CPU for compatibility
         )
         

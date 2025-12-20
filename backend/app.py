@@ -149,7 +149,7 @@ def chat():
         
         # Check if Ollama is available
         try:
-            llm = Ollama(model="llama3.1")
+            llm = Ollama(model="qwen3:14b")
         except Exception as e:
             # Fallback to simple retrieval if Ollama is not available
             results = rag_processor.search_similar(query, k=4)

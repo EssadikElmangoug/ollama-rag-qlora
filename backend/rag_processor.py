@@ -173,4 +173,26 @@ class RAGProcessor:
             return results
         except Exception as e:
             raise Exception(f"Error searching vector store: {str(e)}")
+    
+    def search_similar_with_scores(self, query, k=4):
+        """Search for similar documents with similarity scores"""
+        try:
+            results = self.vectorstore.similarity_search_with_score(query, k=k)
+            return results
+        except Exception as e:
+            raise Exception(f"Error searching vector store: {str(e)}")
+    
+    def has_documents(self):
+        """Check if vector store has any documents"""
+        try:
+            # Try to get one document to check if store is populated
+            results = self.vectorstore.similarity_search("test", k=1)
+            # If we have results and they're not just the placeholder, we have documents
+            if results and len(results) > 0:
+                # Check if it's not the placeholder document
+                if results[0].page_content and results[0].page_content.strip() != "placeholder":
+                    return True
+            return False
+        except:
+            return False
 

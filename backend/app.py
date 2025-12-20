@@ -220,30 +220,66 @@ def chat():
                 'note': 'Ollama not available, showing retrieved context only'
             }), 200
         
-        # Create RAG chain using LCEL (LangChain Expression Language)
-        retriever = rag_processor.get_retriever(k=4)
+        # Check if we have documents in the vector store
+        has_docs = rag_processor.has_documents()
         
-        # Retrieve relevant documents
-        retrieved_docs = retriever.invoke(query)
+        if not has_docs:
+            # No documents uploaded, use LLM normally
+            response = llm.invoke(query)
+            return jsonify({
+                'response': response,
+                'sources': []
+            }), 200
         
+        # Retrieve relevant documents with similarity scores
+        results_with_scores = rag_processor.search_similar_with_scores(query, k=4)
+        
+        # FAISS uses L2 distance (lower = more similar)
+        # Set a distance threshold - if all results are too far, query is not related
+        # Typical good matches have distance < 1.0, adjust based on your embedding model
+        MAX_DISTANCE_THRESHOLD = 1.2
+        
+        # Check if we have any reasonably relevant documents
+        relevant_docs = []
+        min_distance = float('inf')
+        
+        for doc, distance in results_with_scores:
+            if distance < min_distance:
+                min_distance = distance
+            if distance < MAX_DISTANCE_THRESHOLD:
+                relevant_docs.append(doc)
+        
+        # If no relevant documents found or all are too distant, use LLM normally
+        if not relevant_docs or min_distance > MAX_DISTANCE_THRESHOLD:
+            response = llm.invoke(query)
+            return jsonify({
+                'response': response,
+                'sources': []
+            }), 200
+        
+        # We have relevant documents, use RAG
         # Extract sources
         sources = list(set([
             doc.metadata.get('source_file', 'Unknown')
-            for doc in retrieved_docs
+            for doc in relevant_docs
         ]))
         
         # Format context from retrieved documents
-        context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+        context = "\n\n".join([doc.page_content for doc in relevant_docs])
         
-        # Create prompt template
-        template = """Use the following pieces of context to answer the question at the end.
-If you don't know the answer based on the context, just say that you don't know, don't try to make up an answer.
+        # Create prompt template for RAG
+        template = """You are a helpful AI assistant. Answer the question below.
 
-Context: {context}
+If the question is related to the provided context from uploaded documents, use that context to give a detailed and accurate answer. Reference the documents when relevant.
+
+If the question is NOT related to the provided context (e.g., general conversation, greetings, unrelated topics), ignore the context and answer naturally using your general knowledge.
+
+Context from uploaded documents:
+{context}
 
 Question: {question}
 
-Answer:"""
+Answer naturally and helpfully:"""
         
         prompt = PromptTemplate.from_template(template)
         

@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
+import ReactMarkdown from 'react-markdown'
 import { BACKEND_URL } from './config'
 
 const ChatPage = () => {
@@ -144,11 +145,54 @@ const ChatPage = () => {
                     : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm'
                 }`}
               >
-                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
-                  {message.text}
-                </p>
+                {message.sender === 'bot' ? (
+                  <div className="text-sm leading-relaxed markdown-content">
+                    <ReactMarkdown
+                      components={{
+                        p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                        h1: ({ children }) => <h1 className="text-lg font-bold mb-2 mt-3 first:mt-0">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-sm font-semibold mb-2 mt-2 first:mt-0">{children}</h3>,
+                        ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="ml-2">{children}</li>,
+                        code: ({ children, className }) => {
+                          const isInline = !className
+                          return isInline ? (
+                            <code className="bg-slate-200 dark:bg-slate-800 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded text-xs font-mono">
+                              {children}
+                            </code>
+                          ) : (
+                            <code className="block bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 p-3 rounded-lg overflow-x-auto text-xs font-mono mb-2">
+                              {children}
+                            </code>
+                          )
+                        },
+                        pre: ({ children }) => <pre className="bg-slate-200 dark:bg-slate-800 p-3 rounded-lg overflow-x-auto mb-2">{children}</pre>,
+                        a: ({ children, href }) => (
+                          <a href={href} className="text-blue-600 dark:text-blue-400 hover:underline" target="_blank" rel="noopener noreferrer">
+                            {children}
+                          </a>
+                        ),
+                        strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
+                        blockquote: ({ children }) => (
+                          <blockquote className="border-l-4 border-slate-300 dark:border-slate-600 pl-4 my-2 italic">
+                            {children}
+                          </blockquote>
+                        ),
+                      }}
+                    >
+                      {message.text}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">
+                    {message.text}
+                  </p>
+                )}
                 <span
-                  className={`text-xs mt-1 block ${
+                  className={`text-xs mt-2 block ${
                     message.sender === 'user'
                       ? 'text-blue-100'
                       : 'text-slate-500 dark:text-slate-400'

@@ -9,6 +9,14 @@ import subprocess
 from datetime import datetime
 from rag_processor import RAGProcessor
 
+# Import unsloth at module level (before transformers/peft) to ensure optimizations are applied
+# This also triggers cache creation before Flask's reloader starts watching
+try:
+    import unsloth  # This triggers the patching and cache creation early
+    UNSLOTH_AVAILABLE = True
+except ImportError:
+    UNSLOTH_AVAILABLE = False
+
 class QLoRATrainer:
     def __init__(self):
         self.training_status = {
@@ -66,11 +74,22 @@ class QLoRATrainer:
     
     def train_model(self, base_model, model_name, lora_rank, max_steps, learning_rate):
         """Train a QLoRA model using Unsloth"""
+        # Check if training is already in progress
+        if self.training_status['status'] == 'training':
+            raise Exception("Training is already in progress. Please wait for it to complete.")
+        
         def training_worker():
             try:
+                print(f"[Training Thread] Starting training for model: {model_name}")
                 self.training_status['status'] = 'training'
                 self.training_status['model_name'] = model_name
                 self.training_status['progress'] = {'step': 0, 'total': max_steps, 'loss': 0}
+                self.training_status['error'] = None
+                print(f"[Training Thread] Status set to training")
+                
+                # Check if unsloth is available
+                if not UNSLOTH_AVAILABLE:
+                    raise Exception("Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
                 
                 # Import required libraries
                 try:
@@ -78,15 +97,13 @@ class QLoRATrainer:
                 except ImportError:
                     raise Exception("accelerate is required. Install with: pip install accelerate")
                 
-                try:
-                    from unsloth import FastLanguageModel
-                    from unsloth.chat_templates import get_chat_template, standardize_sharegpt, train_on_responses_only
-                    from transformers import TrainingArguments
-                    from trl import SFTTrainer
-                    from transformers import DataCollatorForSeq2Seq
-                    from datasets import Dataset
-                except ImportError as e:
-                    raise Exception(f"Unsloth not installed. Please install: pip install 'unsloth[colab-new]'. Error: {str(e)}")
+                # Import unsloth components (already imported at module level, but import specific classes here)
+                from unsloth import FastLanguageModel
+                from unsloth.chat_templates import get_chat_template, standardize_sharegpt, train_on_responses_only
+                from transformers import TrainingArguments
+                from trl import SFTTrainer
+                from transformers import DataCollatorForSeq2Seq
+                from datasets import Dataset
                 
                 # Prepare training data
                 training_data = self.prepare_training_data_from_documents()
@@ -228,8 +245,11 @@ class QLoRATrainer:
                 traceback.print_exc()
         
         # Start training in background thread
-        self.training_thread = threading.Thread(target=training_worker, daemon=True)
+        # Use daemon=False to ensure thread completes even if main thread exits
+        self.training_thread = threading.Thread(target=training_worker, daemon=False)
         self.training_thread.start()
+        print(f"Training thread started for model: {model_name}")
+        print(f"Thread ID: {self.training_thread.ident}, Status: {self.training_status['status']}")
     
     def convert_to_ollama(self, model_path):
         """Convert fine-tuned model to Ollama format"""

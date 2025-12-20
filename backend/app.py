@@ -411,5 +411,7 @@ def qlora_convert():
         return jsonify({'error': f'Error converting model: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Disable reloader to prevent Flask from restarting when Unsloth creates cache files
+    # This ensures training threads aren't killed by server restarts
+    app.run(debug=True, host='0.0.0.0', port=5000, use_reloader=False)
 

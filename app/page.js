@@ -20,6 +20,7 @@ const ChatPage = () => {
   const [selectedModel, setSelectedModel] = useState('')
   const [loadingModels, setLoadingModels] = useState(true)
   const messagesEndRef = useRef(null)
+  const inputRef = useRef(null)
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -85,6 +86,11 @@ const ChatPage = () => {
     setMessages(prev => [...prev, userMessage])
     setInputValue('')
     setIsLoading(true)
+    
+    // Keep input focused even when disabled
+    setTimeout(() => {
+      inputRef.current?.focus()
+    }, 50)
 
     // Format conversation history
     const conversationHistory = messages.map(msg => ({
@@ -133,6 +139,11 @@ const ChatPage = () => {
       }
       setMessages(prev => [...prev, botMessage])
       setIsLoading(false)
+      
+      // Focus input after response
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 100)
     } catch (error) {
       console.error('Error sending message:', error)
       const errorMessage = {
@@ -144,6 +155,11 @@ const ChatPage = () => {
       setMessages(prev => [...prev, errorMessage])
       setIsLoading(false)
     }
+    
+    // Focus input after response
+    setTimeout(() => {
+      inputRef.current?.focus()
+    }, 100)
   }
 
   const formatTime = (date) => {
@@ -345,12 +361,19 @@ const ChatPage = () => {
           <form onSubmit={handleSend} className="flex gap-3">
             <div className="flex-1 relative">
               <input
+                ref={inputRef}
                 type="text"
                 value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
-                placeholder="Ask anything about your documents..."
+                placeholder={isLoading ? "AI is thinking..." : "Ask anything about your documents..."}
                 className="w-full px-5 py-4 pr-12 rounded-2xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all shadow-sm"
-                disabled={isLoading}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !isLoading && inputValue.trim()) {
+                    e.preventDefault()
+                    handleSend(e)
+                  }
+                }}
               />
               <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

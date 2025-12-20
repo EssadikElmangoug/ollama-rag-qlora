@@ -86,6 +86,18 @@ const ChatPage = () => {
     setInputValue('')
     setIsLoading(true)
 
+    // Format conversation history
+    const conversationHistory = messages.map(msg => ({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content: msg.text
+    }))
+    
+    // Add the current user message
+    conversationHistory.push({
+      role: 'user',
+      content: userMessage.text
+    })
+
     // Call RAG API endpoint
     try {
       const response = await fetch(`${BACKEND_URL}/api/chat`, {
@@ -93,7 +105,8 @@ const ChatPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage.text,
-          model: selectedModel || 'qwen3:14b'
+          model: selectedModel || 'qwen3:14b',
+          conversation_history: conversationHistory
         })
       })
 

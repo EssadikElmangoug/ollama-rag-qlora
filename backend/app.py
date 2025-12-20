@@ -202,6 +202,7 @@ def chat():
         data = request.get_json()
         query = data.get('message', '').strip()
         model_name = data.get('model', 'qwen3:14b')  # Default model or from request
+        conversation_history = data.get('conversation_history', [])  # Full conversation history
         
         if not query:
             return jsonify({'error': 'No message provided'}), 400
@@ -249,11 +250,32 @@ def chat():
             if distance < MAX_DISTANCE_THRESHOLD:
                 relevant_docs.append(doc)
         
-        # If no relevant documents found or all are too distant, use LLM normally
+        # If no relevant documents found or all are too distant, use LLM normally with conversation history
         if not relevant_docs or min_distance > MAX_DISTANCE_THRESHOLD:
-            response = llm.invoke(query)
+            if conversation_history:
+                # Use conversation history with ChatOllama for proper context
+                from langchain_community.chat_models import ChatOllama
+                from langchain_core.messages import HumanMessage, AIMessage
+                
+                chat_llm = ChatOllama(model=model_name)
+                
+                # Convert conversation history to LangChain messages
+                langchain_messages = []
+                for msg in conversation_history:
+                    if msg['role'] == 'user':
+                        langchain_messages.append(HumanMessage(content=msg['content']))
+                    elif msg['role'] == 'assistant':
+                        langchain_messages.append(AIMessage(content=msg['content']))
+                
+                # Get response with full conversation context
+                response = chat_llm.invoke(langchain_messages)
+                response_text = response.content if hasattr(response, 'content') else str(response)
+            else:
+                # Fallback to simple invoke if no history
+                response_text = llm.invoke(query)
+            
             return jsonify({
-                'response': response,
+                'response': response_text,
                 'sources': []
             }), 200
         
@@ -267,30 +289,36 @@ def chat():
         # Format context from retrieved documents
         context = "\n\n".join([doc.page_content for doc in relevant_docs])
         
-        # Create prompt template for RAG
-        template = """You are a helpful AI assistant. Answer the question below.
+        # Use ChatOllama for conversation history support
+        from langchain_community.chat_models import ChatOllama
+        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+        
+        chat_llm = ChatOllama(model=model_name)
+        
+        # Create system message with context
+        system_message = SystemMessage(content=f"""You are a helpful AI assistant. Answer questions using the provided context from uploaded documents when relevant.
 
-If the question is related to the provided context from uploaded documents, use that context to give a detailed and accurate answer. Reference the documents when relevant.
+If the question is related to the provided context, use that context to give a detailed and accurate answer. Reference the documents when relevant.
 
 If the question is NOT related to the provided context (e.g., general conversation, greetings, unrelated topics), ignore the context and answer naturally using your general knowledge.
 
 Context from uploaded documents:
-{context}
-
-Question: {question}
-
-Answer naturally and helpfully:"""
+{context}""")
         
-        prompt = PromptTemplate.from_template(template)
+        # Convert conversation history to LangChain messages
+        langchain_messages = [system_message]
+        for msg in conversation_history:
+            if msg['role'] == 'user':
+                langchain_messages.append(HumanMessage(content=msg['content']))
+            elif msg['role'] == 'assistant':
+                langchain_messages.append(AIMessage(content=msg['content']))
         
-        # Create the chain
-        chain = prompt | llm | StrOutputParser()
-        
-        # Get response
-        response = chain.invoke({"context": context, "question": query})
+        # Get response with full conversation context and RAG
+        response = chat_llm.invoke(langchain_messages)
+        response_text = response.content if hasattr(response, 'content') else str(response)
         
         return jsonify({
-            'response': response,
+            'response': response_text,
             'sources': sources
         }), 200
     

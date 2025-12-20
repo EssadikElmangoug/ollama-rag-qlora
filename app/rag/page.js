@@ -198,27 +198,34 @@ const RAGPage = () => {
   }, [])
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="max-w-6xl mx-auto px-4 py-4">
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-800/50 shadow-lg shadow-slate-200/20 dark:shadow-black/20">
+        <div className="max-w-6xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
-                Documents
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Upload and manage your documents for RAG
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent">
+                  Documents
+                </h1>
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+                  Upload and manage your documents for RAG
+                </p>
+              </div>
             </div>
             <Link
               href="/"
-              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors group"
+              className="p-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/50 dark:border-slate-700/50 transition-all duration-200 hover:scale-105 hover:shadow-md group"
               title="Back to Chat"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
-                className="h-6 w-6 text-slate-600 dark:text-slate-300 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors"
+                className="h-5 w-5 text-slate-600 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -236,7 +243,7 @@ const RAGPage = () => {
       </header>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div className="flex-1 overflow-y-auto px-4 py-8">
         <div className="max-w-6xl mx-auto space-y-6">
           {/* Upload Area */}
           <div
@@ -245,12 +252,12 @@ const RAGPage = () => {
             onDrop={handleDrop}
             onClick={handleClickUpload}
             className={`
-              relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer
-              transition-all duration-200
+              relative border-2 border-dashed rounded-3xl p-16 text-center cursor-pointer
+              transition-all duration-300 backdrop-blur-sm
               ${
                 isDragging
-                  ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                  : 'border-slate-300 dark:border-slate-600 hover:border-blue-400 dark:hover:border-blue-500 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  ? 'border-blue-500 bg-gradient-to-br from-blue-50/80 to-blue-100/50 dark:from-blue-900/30 dark:to-blue-800/20 shadow-2xl shadow-blue-500/20 scale-[1.02]'
+                  : 'border-slate-300/50 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 hover:border-blue-400 dark:hover:border-blue-500 hover:bg-white/80 dark:hover:bg-slate-800/80 hover:shadow-xl shadow-lg shadow-slate-200/20 dark:shadow-black/20'
               }
             `}
           >
@@ -262,11 +269,15 @@ const RAGPage = () => {
               onChange={handleFileInput}
               className="hidden"
             />
-            <div className="space-y-4">
-              <div className="mx-auto w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center">
+            <div className="space-y-5">
+              <div className={`mx-auto w-20 h-20 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                isDragging 
+                  ? 'bg-gradient-to-br from-blue-500 to-blue-600 shadow-xl shadow-blue-500/30 scale-110' 
+                  : 'bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 shadow-lg'
+              }`}>
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-8 w-8 text-blue-500"
+                  className={`h-10 w-10 transition-colors ${isDragging ? 'text-white' : 'text-blue-600 dark:text-blue-400'}`}
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -280,43 +291,51 @@ const RAGPage = () => {
                 </svg>
               </div>
               <div>
-                <p className="text-lg font-semibold text-slate-700 dark:text-slate-200">
+                <p className="text-xl font-bold text-slate-800 dark:text-slate-100">
                   {isDragging ? 'Drop files here' : 'Drag & drop files here'}
                 </p>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">
                   or click to browse
                 </p>
               </div>
-              <div className="text-xs text-slate-400 dark:text-slate-500">
-                Supported formats: TXT, MD, PDF, DOC, DOCX, XLS, XLSX, CSV, PPT, PPTX
+              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-slate-100/80 dark:bg-slate-800/80 border border-slate-200/50 dark:border-slate-700/50">
+                <svg className="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-400">
+                  Supported: TXT, MD, PDF, DOC, DOCX, XLS, XLSX, CSV, PPT, PPTX
+                </span>
               </div>
             </div>
           </div>
 
           {/* Files List */}
           {files.length > 0 && (
-            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700">
-                <h2 className="text-lg font-semibold text-slate-800 dark:text-slate-100">
+            <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-3xl shadow-xl shadow-slate-200/50 dark:shadow-black/20 border border-slate-200/50 dark:border-slate-700/50 overflow-hidden">
+              <div className="px-6 py-5 border-b border-slate-200/50 dark:border-slate-700/50 bg-gradient-to-r from-slate-50/50 to-transparent dark:from-slate-800/50">
+                <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
                   Uploaded Documents ({files.length})
                 </h2>
               </div>
-              <div className="divide-y divide-slate-200 dark:divide-slate-700">
+              <div className="divide-y divide-slate-200/50 dark:divide-slate-700/50">
                 {files.map((file) => (
                   <div
                     key={file.id}
-                    className="px-6 py-4 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                    className="px-6 py-5 hover:bg-slate-50/80 dark:hover:bg-slate-700/30 transition-all duration-200 group"
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center space-x-4 flex-1 min-w-0">
-                        <div className="text-3xl flex-shrink-0">
+                        <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-blue-200 dark:from-blue-900/40 dark:to-blue-800/40 flex items-center justify-center text-2xl flex-shrink-0 shadow-md">
                           {getFileIcon(file.name)}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-slate-800 dark:text-slate-100 truncate">
+                          <p className="text-sm font-semibold text-slate-800 dark:text-slate-100 truncate">
                             {file.name}
                           </p>
-                          <div className="flex items-center space-x-4 mt-1">
+                          <div className="flex items-center space-x-4 mt-2">
                             <span className="text-xs text-slate-500 dark:text-slate-400">
                               {formatFileSize(file.size)}
                             </span>
@@ -347,7 +366,7 @@ const RAGPage = () => {
                             e.stopPropagation()
                             handleDelete(file.id)
                           }}
-                          className="ml-4 p-2 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                          className="ml-4 p-2.5 text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-all duration-200 hover:scale-110 active:scale-95"
                           title="Delete file"
                         >
                           <svg
@@ -368,9 +387,9 @@ const RAGPage = () => {
                       )}
                     </div>
                     {file.status === 'uploading' && (
-                      <div className="mt-3">
-                        <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-2">
-                          <div className="bg-blue-500 h-2 rounded-full animate-pulse" style={{ width: '60%' }}></div>
+                      <div className="mt-4">
+                        <div className="w-full bg-slate-200/50 dark:bg-slate-700/50 rounded-full h-2.5 overflow-hidden">
+                          <div className="bg-gradient-to-r from-blue-500 to-blue-600 h-2.5 rounded-full animate-pulse shadow-lg" style={{ width: '60%' }}></div>
                         </div>
                       </div>
                     )}
@@ -382,9 +401,17 @@ const RAGPage = () => {
 
           {/* Empty State */}
           {files.length === 0 && !uploading && (
-            <div className="text-center py-12">
-              <p className="text-slate-500 dark:text-slate-400">
-                No documents uploaded yet. Upload your first document to get started!
+            <div className="text-center py-16">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-100/80 dark:bg-slate-800/80 mb-4">
+                <svg className="w-8 h-8 text-slate-400 dark:text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+              </div>
+              <p className="text-slate-600 dark:text-slate-400 font-medium">
+                No documents uploaded yet
+              </p>
+              <p className="text-sm text-slate-500 dark:text-slate-500 mt-1">
+                Upload your first document to get started!
               </p>
             </div>
           )}

@@ -141,25 +141,34 @@ const ChatPage = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-800">
+    <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
       {/* Header */}
-      <header className="bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/50 dark:border-slate-800/50 shadow-lg shadow-slate-200/20 dark:shadow-black/20">
+        <div className="max-w-5xl mx-auto px-6 py-5">
           <div className="flex items-center justify-between">
             <div className="flex-1">
-              <h1 className="text-2xl font-bold text-slate-800 dark:text-slate-100">
-                Chat
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Start a conversation
-              </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+                  <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                  </svg>
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold bg-gradient-to-r from-slate-900 to-slate-700 dark:from-slate-100 dark:to-slate-300 bg-clip-text text-transparent">
+                    AI Assistant
+                  </h1>
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+                    Powered by RAG
+                  </p>
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-3">
               {/* Model Selector */}
-              <div className="flex items-center gap-2">
-                <label htmlFor="model-select" className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-                  Model:
-                </label>
+              <div className="flex items-center gap-2 bg-slate-100/80 dark:bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-200/50 dark:border-slate-700/50 backdrop-blur-sm">
+                <svg className="w-4 h-4 text-slate-500 dark:text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
                 <select
                   id="model-select"
                   value={selectedModel}
@@ -168,16 +177,16 @@ const ChatPage = () => {
                     localStorage.setItem('selectedModel', e.target.value)
                   }}
                   disabled={loadingModels || isLoading}
-                  className="px-3 py-1.5 text-sm rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loadingModels ? (
-                    <option>Loading models...</option>
+                    <option>Loading...</option>
                   ) : models.length === 0 ? (
-                    <option value="">No models available</option>
+                    <option value="">No models</option>
                   ) : (
                     models.map((model) => (
                       <option key={model.name} value={model.name}>
-                        {model.name} {model.size ? `(${model.size})` : ''}
+                        {model.name}
                       </option>
                     ))
                   )}
@@ -185,12 +194,12 @@ const ChatPage = () => {
               </div>
               <Link
                 href="/rag"
-                className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors group"
+                className="p-2.5 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/50 dark:border-slate-700/50 transition-all duration-200 hover:scale-105 hover:shadow-md group"
                 title="Documents"
               >
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6 text-slate-600 dark:text-slate-300 group-hover:text-blue-500 dark:group-hover:text-blue-400 transition-colors"
+                  className="h-5 w-5 text-slate-600 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -209,18 +218,25 @@ const ChatPage = () => {
       </header>
 
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-4xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto px-4 py-8">
+        <div className="max-w-4xl mx-auto space-y-6">
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex items-start gap-3 ${message.sender === 'user' ? 'justify-end' : 'justify-start'}`}
             >
+              {message.sender === 'bot' && (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
+                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                  </svg>
+                </div>
+              )}
               <div
-                className={`max-w-[75%] rounded-2xl px-4 py-3 shadow-sm ${
+                className={`max-w-[75%] rounded-2xl px-5 py-4 shadow-lg transition-all duration-200 ${
                   message.sender === 'user'
-                    ? 'bg-blue-500 text-white rounded-br-sm'
-                    : 'bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-sm'
+                    ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md shadow-blue-500/20'
+                    : 'bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm text-slate-800 dark:text-slate-100 rounded-bl-md shadow-slate-200/50 dark:shadow-black/20 border border-slate-200/50 dark:border-slate-700/50'
                 }`}
               >
                 {message.sender === 'bot' ? (
@@ -270,25 +286,37 @@ const ChatPage = () => {
                   </p>
                 )}
                 <span
-                  className={`text-xs mt-2 block ${
+                  className={`text-xs mt-3 block opacity-70 ${
                     message.sender === 'user'
-                      ? 'text-blue-100'
+                      ? 'text-blue-50'
                       : 'text-slate-500 dark:text-slate-400'
                   }`}
                 >
                   {formatTime(message.timestamp)}
                 </span>
               </div>
+              {message.sender === 'user' && (
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-400 to-slate-500 flex items-center justify-center flex-shrink-0 shadow-lg">
+                  <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                </div>
+              )}
             </div>
           ))}
           
           {isLoading && (
-            <div className="flex justify-start">
-              <div className="bg-white dark:bg-slate-700 rounded-2xl rounded-bl-sm px-4 py-3 shadow-sm">
-                <div className="flex space-x-1">
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                  <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+            <div className="flex items-start gap-3 justify-start">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center flex-shrink-0 shadow-lg shadow-blue-500/20">
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div className="bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm rounded-2xl rounded-bl-md px-5 py-4 shadow-lg shadow-slate-200/50 dark:shadow-black/20 border border-slate-200/50 dark:border-slate-700/50">
+                <div className="flex space-x-1.5">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
                 </div>
               </div>
             </div>
@@ -299,21 +327,28 @@ const ChatPage = () => {
       </div>
 
       {/* Input Area */}
-      <div className="bg-white dark:bg-slate-800 border-t border-slate-200 dark:border-slate-700 shadow-lg">
-        <div className="max-w-4xl mx-auto px-4 py-4">
+      <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-t border-slate-200/50 dark:border-slate-800/50 shadow-2xl shadow-slate-200/20 dark:shadow-black/20">
+        <div className="max-w-4xl mx-auto px-6 py-5">
           <form onSubmit={handleSend} className="flex gap-3">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Type your message..."
-              className="flex-1 px-4 py-3 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-              disabled={isLoading}
-            />
+            <div className="flex-1 relative">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                placeholder="Ask anything about your documents..."
+                className="w-full px-5 py-4 pr-12 rounded-2xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 backdrop-blur-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all shadow-sm"
+                disabled={isLoading}
+              />
+              <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </div>
+            </div>
             <button
               type="submit"
               disabled={!inputValue.trim() || isLoading}
-              className="px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-slate-300 dark:disabled:bg-slate-600 disabled:cursor-not-allowed text-white rounded-xl font-medium transition-colors shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              className="px-6 py-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-slate-300 disabled:to-slate-400 dark:disabled:from-slate-600 dark:disabled:to-slate-700 disabled:cursor-not-allowed text-white rounded-2xl font-semibold transition-all duration-200 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:shadow-blue-500/40 hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:hover:scale-100"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"

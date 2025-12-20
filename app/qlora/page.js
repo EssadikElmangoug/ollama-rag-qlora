@@ -89,9 +89,11 @@ const QLoRAPage = () => {
               setTrainingProgress(statusData.progress || {})
               clearInterval(pollInterval)
               loadAvailableModels()
+              alert('Training completed successfully!')
             } else if (statusData.status === 'error') {
               setTrainingStatus('error')
               clearInterval(pollInterval)
+              alert(`Training failed: ${statusData.error || 'Unknown error'}`)
             }
           }
         } catch (error) {
@@ -306,6 +308,21 @@ const QLoRAPage = () => {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* Error Display */}
+          {trainingStatus === 'error' && (
+            <div className="bg-red-50/80 dark:bg-red-900/20 rounded-3xl p-6 border border-red-200/50 dark:border-red-800/50">
+              <h3 className="text-lg font-bold text-red-800 dark:text-red-200 mb-2 flex items-center gap-2">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Training Error
+              </h3>
+              <p className="text-sm text-red-700 dark:text-red-300">
+                Please check the backend logs for details. Make sure all dependencies are installed: pip install accelerate bitsandbytes xformers
+              </p>
             </div>
           )}
 

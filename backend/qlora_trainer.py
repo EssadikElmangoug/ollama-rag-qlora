@@ -72,7 +72,12 @@ class QLoRATrainer:
                 self.training_status['model_name'] = model_name
                 self.training_status['progress'] = {'step': 0, 'total': max_steps, 'loss': 0}
                 
-                # Import Unsloth (may fail if not installed)
+                # Import required libraries
+                try:
+                    import accelerate
+                except ImportError:
+                    raise Exception("accelerate is required. Install with: pip install accelerate")
+                
                 try:
                     from unsloth import FastLanguageModel
                     from unsloth.chat_templates import get_chat_template, standardize_sharegpt, train_on_responses_only
@@ -81,7 +86,7 @@ class QLoRATrainer:
                     from transformers import DataCollatorForSeq2Seq
                     from datasets import Dataset
                 except ImportError as e:
-                    raise Exception(f"Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
+                    raise Exception(f"Unsloth not installed. Please install: pip install 'unsloth[colab-new]'. Error: {str(e)}")
                 
                 # Prepare training data
                 training_data = self.prepare_training_data_from_documents()
@@ -180,10 +185,13 @@ class QLoRATrainer:
                         self.trainer = trainer_instance
                     
                     def on_log(self, args, state, control, logs=None, **kwargs):
-                        if 'loss' in logs:
-                            self.trainer.training_status['progress']['loss'] = logs['loss']
-                        if 'step' in state:
-                            self.trainer.training_status['progress']['step'] = state.global_step
+                        try:
+                            if logs and 'loss' in logs:
+                                self.trainer.training_status['progress']['loss'] = float(logs['loss'])
+                            if hasattr(state, 'global_step'):
+                                self.trainer.training_status['progress']['step'] = int(state.global_step)
+                        except Exception as e:
+                            print(f"Error updating progress: {e}")
                 
                 trainer.add_callback(ProgressCallback(self))
                 
@@ -209,9 +217,15 @@ class QLoRATrainer:
                 self.training_status['progress']['step'] = max_steps
                 
             except Exception as e:
+                error_msg = str(e)
                 self.training_status['status'] = 'error'
-                self.training_status['error'] = str(e)
-                print(f"Training error: {e}")
+                self.training_status['error'] = error_msg
+                # Keep existing progress if available
+                if 'progress' not in self.training_status:
+                    self.training_status['progress'] = {'step': 0, 'total': 0, 'loss': 0}
+                print(f"Training error: {error_msg}")
+                import traceback
+                traceback.print_exc()
         
         # Start training in background thread
         self.training_thread = threading.Thread(target=training_worker, daemon=True)

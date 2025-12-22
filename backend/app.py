@@ -534,11 +534,13 @@ def qlora_convert():
         if not model_path:
             return jsonify({'error': 'Model path is required'}), 400
         
-        ollama_model_name = qlora_trainer.convert_to_ollama(model_path)
+        # Pass Ollama base URL to the converter
+        ollama_model_name = qlora_trainer.convert_to_ollama(model_path, ollama_base_url=OLLAMA_BASE_URL)
         
         return jsonify({
             'message': 'Model converted successfully',
-            'ollama_model_name': ollama_model_name
+            'ollama_model_name': ollama_model_name,
+            'ollama_url': OLLAMA_BASE_URL
         }), 200
     
     except Exception as e:

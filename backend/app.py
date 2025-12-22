@@ -2,6 +2,7 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
 import subprocess
+import requests
 from werkzeug.utils import secure_filename
 from datetime import datetime
 from rag_processor import RAGProcessor
@@ -28,6 +29,10 @@ UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'txt', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
+# Ollama configuration - can be set via environment variable
+# Default to localhost, but can be changed to Docker URL (e.g., http://localhost:11434)
+OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 
@@ -36,6 +41,25 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def get_ollama_models():
+    """Get list of models from Ollama API"""
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            models = []
+            for model in data.get('models', []):
+                models.append({
+                    'name': model.get('name', ''),
+                    'size': model.get('size', 0),
+                    'type': 'ollama'
+                })
+            return models
+        return []
+    except Exception as e:
+        print(f"Error fetching Ollama models from {OLLAMA_BASE_URL}: {e}")
+        return []
 
 @app.route('/')
 def home():
@@ -55,32 +79,14 @@ def health():
 def list_models():
     """Get list of available Ollama models (including fine-tuned)"""
     try:
-        # Run ollama list command
-        result = subprocess.run(
-            ['ollama', 'list'],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        
         models = []
         
-        if result.returncode == 0:
-            # Parse the output
-            lines = result.stdout.strip().split('\n')
-            
-            # Skip the header line (if present)
-            for line in lines[1:]:
-                if line.strip():
-                    parts = line.split()
-                    if len(parts) >= 1:
-                        model_name = parts[0]
-                        # Extract size if available
-                        size = parts[1] if len(parts) > 1 else None
-                        models.append({
-                            'name': model_name,
-                            'size': size
-                        })
+        # Get models from Ollama API
+        try:
+            ollama_models = get_ollama_models()
+            models.extend(ollama_models)
+        except Exception as e:
+            print(f"Warning: Could not fetch Ollama models from {OLLAMA_BASE_URL}: {e}")
         
         # Also include fine-tuned models (both Ollama-converted and direct)
         try:
@@ -99,23 +105,15 @@ def list_models():
         
         return jsonify({
             'models': models,
-            'count': len(models)
+            'count': len(models),
+            'ollama_url': OLLAMA_BASE_URL
         }), 200
     
-    except FileNotFoundError:
-        return jsonify({
-            'error': 'Ollama not found. Please make sure Ollama is installed and in your PATH.',
-            'models': []
-        }), 503
-    except subprocess.TimeoutExpired:
-        return jsonify({
-            'error': 'Timeout while listing models',
-            'models': []
-        }), 500
     except Exception as e:
         return jsonify({
             'error': f'Error listing models: {str(e)}',
-            'models': []
+            'models': [],
+            'ollama_url': OLLAMA_BASE_URL
         }), 500
 
 @app.route('/api/upload', methods=['POST'])
@@ -358,7 +356,7 @@ Context from uploaded documents:
         # Fall back to Ollama for regular models
         # Check if Ollama is available
         try:
-            llm = Ollama(model=model_name)
+            llm = Ollama(model=model_name, base_url=OLLAMA_BASE_URL)
         except Exception as e:
             # Fallback to simple retrieval if Ollama is not available
             results = rag_processor.search_similar(query, k=4)
@@ -406,7 +404,7 @@ Context from uploaded documents:
                 from langchain_community.chat_models import ChatOllama
                 from langchain_core.messages import HumanMessage, AIMessage
                 
-                chat_llm = ChatOllama(model=model_name)
+                chat_llm = ChatOllama(model=model_name, base_url=OLLAMA_BASE_URL)
                 
                 # Convert conversation history to LangChain messages
                 langchain_messages = []

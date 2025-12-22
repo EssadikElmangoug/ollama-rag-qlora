@@ -20,4 +20,5 @@ transformers>=4.36.0
 accelerate>=0.21.0
 bitsandbytes>=0.41.0
 xformers>=0.0.22
+requests>=2.31.0
 

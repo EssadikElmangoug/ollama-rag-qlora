@@ -20,6 +20,9 @@ rag_processor = RAGProcessor()
 # Initialize QLoRA Trainer
 qlora_trainer = QLoRATrainer()
 
+# Cache for loaded fine-tuned models (to avoid reloading on every request)
+loaded_models_cache = {}
+
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'txt', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx'}
@@ -79,19 +82,20 @@ def list_models():
                             'size': size
                         })
         
-        # Also include fine-tuned models that are ready
+        # Also include fine-tuned models (both Ollama-converted and direct)
         try:
             fine_tuned = qlora_trainer.list_trained_models()
             for model in fine_tuned:
-                if model['ollama_ready']:
-                    # Check if already in list
-                    if not any(m['name'] == model['name'] for m in models):
-                        models.append({
-                            'name': model['name'],
-                            'size': None
-                        })
-        except:
-            pass
+                # Check if already in list (might be converted to Ollama)
+                if not any(m.get('name') == model['name'] for m in models):
+                    models.append({
+                        'name': model['name'],
+                        'size': None,
+                        'type': 'fine-tuned',
+                        'ollama_ready': model.get('ollama_ready', False)
+                    })
+        except Exception as e:
+            print(f"Warning: Could not list fine-tuned models: {e}")
         
         return jsonify({
             'models': models,
@@ -208,6 +212,81 @@ def delete_file(filename):
     except Exception as e:
         return jsonify({'error': f'Error deleting file: {str(e)}'}), 500
 
+def load_fine_tuned_model(model_name):
+    """Load a fine-tuned model directly using Unsloth/transformers"""
+    # Check if model is already loaded
+    if model_name in loaded_models_cache:
+        return loaded_models_cache[model_name]
+    
+    # Check if this is a fine-tuned model
+    model_path = f"./qlora_models/{model_name}"
+    if not os.path.exists(model_path):
+        return None
+    
+    try:
+        from unsloth import FastLanguageModel
+        
+        # Load the fine-tuned model with LoRA adapters
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=model_path,
+            max_seq_length=2048,
+            dtype=None,
+            load_in_4bit=True,
+        )
+        
+        # Enable fast inference mode
+        FastLanguageModel.for_inference(model)
+        
+        # Cache the loaded model
+        loaded_models_cache[model_name] = (model, tokenizer)
+        print(f"Loaded fine-tuned model: {model_name}")
+        return (model, tokenizer)
+    except Exception as e:
+        print(f"Error loading fine-tuned model {model_name}: {e}")
+        return None
+
+def generate_with_fine_tuned_model(model, tokenizer, messages, max_new_tokens=512):
+    """Generate response using a fine-tuned model directly"""
+    try:
+        # Format messages for chat template
+        formatted_messages = []
+        for msg in messages:
+            if msg['role'] == 'user':
+                formatted_messages.append({"role": "user", "content": msg['content']})
+            elif msg['role'] == 'assistant':
+                formatted_messages.append({"role": "assistant", "content": msg['content']})
+        
+        # Apply chat template
+        inputs = tokenizer.apply_chat_template(
+            formatted_messages,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_tensors="pt",
+        )
+        
+        # Move to device (GPU if available, else CPU)
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        inputs = inputs.to(device)
+        # Model should already be on the correct device from loading, but ensure it is
+        if next(model.parameters()).device.type != device:
+            model = model.to(device)
+        
+        # Generate response
+        outputs = model.generate(
+            input_ids=inputs,
+            max_new_tokens=max_new_tokens,
+            temperature=0.7,
+            do_sample=True,
+            top_p=0.9,
+        )
+        
+        # Decode response (skip the prompt)
+        response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+        return response.strip()
+    except Exception as e:
+        raise Exception(f"Error generating with fine-tuned model: {str(e)}")
+
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """Chat endpoint with RAG retrieval"""
@@ -220,6 +299,63 @@ def chat():
         if not query:
             return jsonify({'error': 'No message provided'}), 400
         
+        # Check if this is a fine-tuned model (starts with qlora_ or exists in qlora_models)
+        fine_tuned_model = load_fine_tuned_model(model_name)
+        
+        if fine_tuned_model:
+            # Use fine-tuned model directly
+            model, tokenizer = fine_tuned_model
+            
+            # Prepare messages with current query
+            messages = conversation_history + [{'role': 'user', 'content': query}]
+            
+            # Check if we have documents for RAG
+            has_docs = rag_processor.has_documents()
+            
+            if has_docs:
+                # Retrieve relevant documents
+                results_with_scores = rag_processor.search_similar_with_scores(query, k=4)
+                MAX_DISTANCE_THRESHOLD = 1.2
+                
+                relevant_docs = []
+                min_distance = float('inf')
+                
+                for doc, distance in results_with_scores:
+                    if distance < min_distance:
+                        min_distance = distance
+                    if distance < MAX_DISTANCE_THRESHOLD:
+                        relevant_docs.append(doc)
+                
+                # Add context if relevant documents found
+                if relevant_docs and min_distance < MAX_DISTANCE_THRESHOLD:
+                    context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                    system_message = f"""You are a helpful AI assistant. Answer questions using the provided context from uploaded documents when relevant.
+
+If the question is related to the provided context, use that context to give a detailed and accurate answer. Reference the documents when relevant.
+
+If the question is NOT related to the provided context (e.g., general conversation, greetings, unrelated topics), ignore the context and answer naturally using your general knowledge.
+
+Context from uploaded documents:
+{context}"""
+                    
+                    # Prepend system message
+                    messages = [{'role': 'user', 'content': system_message}] + messages
+                    sources = list(set([doc.metadata.get('source_file', 'Unknown') for doc in relevant_docs]))
+                else:
+                    sources = []
+            else:
+                sources = []
+            
+            # Generate response
+            response_text = generate_with_fine_tuned_model(model, tokenizer, messages)
+            
+            return jsonify({
+                'response': response_text,
+                'sources': sources,
+                'model_type': 'fine-tuned'
+            }), 200
+        
+        # Fall back to Ollama for regular models
         # Check if Ollama is available
         try:
             llm = Ollama(model=model_name)

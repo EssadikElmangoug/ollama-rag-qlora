@@ -6,7 +6,6 @@ import os
 import json
 import threading
 import subprocess
-import requests
 from datetime import datetime
 from rag_processor import RAGProcessor
 
@@ -277,13 +276,9 @@ class QLoRATrainer:
         print(f"Training thread started for model: {model_name}")
         print(f"Thread ID: {self.training_thread.ident}, Status: {self.training_status['status']}")
     
-    def convert_to_ollama(self, model_path, ollama_base_url=None):
+    def convert_to_ollama(self, model_path):
         """Convert fine-tuned model to Ollama format"""
         try:
-            # Get Ollama base URL from environment or parameter
-            if ollama_base_url is None:
-                ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
-            
             # Check if model exists
             if not os.path.exists(model_path):
                 raise Exception(f"Model not found at {model_path}")
@@ -314,7 +309,6 @@ class QLoRATrainer:
                         adapter_config = json.load(f)
                         base_model = adapter_config.get('base_model_name_or_path', base_model)
             
-            print(f"[Convert] Loading model from {model_path}...")
             # Load the model with adapters
             model, tokenizer = FastLanguageModel.from_pretrained(
                 model_name=model_path,
@@ -327,7 +321,6 @@ class QLoRATrainer:
             merged_model_path = os.path.join(model_path, "merged_model")
             os.makedirs(merged_model_path, exist_ok=True)
             
-            print(f"[Convert] Merging LoRA adapters...")
             # Save merged model (16-bit for better compatibility)
             model.save_pretrained_merged(
                 merged_model_path,
@@ -335,129 +328,39 @@ class QLoRATrainer:
                 save_method="merged_16bit",
             )
             
-            # Step 2: Export to GGUF format (required by Ollama)
-            print(f"[Convert] Exporting to GGUF format...")
-            gguf_path = os.path.join(model_path, "gguf")
-            os.makedirs(gguf_path, exist_ok=True)
-            
-            # Try to export to GGUF using Unsloth
-            # Note: Unsloth's push_to_hub_gguf is for HuggingFace Hub
-            # We need to use a different approach for local export
-            try:
-                # Check if we can use Unsloth's local export
-                # First, try to save in a format that can be converted
-                print(f"[Convert] Attempting GGUF export...")
-                
-                # Unsloth doesn't have direct local GGUF export in current version
-                # We'll need to use llama.cpp or provide instructions
-                # For now, save the merged model and provide conversion instructions
-                print(f"[Convert] GGUF export requires llama.cpp. Providing conversion instructions...")
-                
-                # Create a note file with conversion instructions
-                instructions_path = os.path.join(gguf_path, "CONVERSION_INSTRUCTIONS.txt")
-                with open(instructions_path, 'w') as f:
-                    f.write(f"""To convert this model to GGUF format for Ollama:
-
-1. Install llama.cpp:
-   git clone https://github.com/ggerganov/llama.cpp
-   cd llama.cpp
-   make
-
-2. Convert the model:
-   python convert.py {os.path.abspath(merged_model_path)} --outtype f16
-
-3. Quantize (optional, for smaller size):
-   ./quantize ggml-model-f16.gguf ggml-model-q4_k_m.gguf q4_k_m
-
-4. Then use the GGUF file in the Ollama Modelfile.
-
-Alternatively, you can use the merged model directly with the fine-tuned model loader (no Ollama conversion needed).
-""")
-                
-                # For now, we'll use the merged model path and let Ollama handle it
-                # if it supports PyTorch models, or provide clear error
-                gguf_file = None
-                raise Exception("GGUF export not yet implemented. Use the model directly without Ollama conversion, or convert manually using llama.cpp.")
-                
-            except Exception as e:
-                # If GGUF export fails, we can't proceed with Ollama conversion
-                # But we can still use the model directly
-                error_msg = str(e)
-                if "GGUF export not yet implemented" in error_msg:
-                    # Provide a clear, user-friendly error message
-                    raise Exception(
-                        f"✅ GOOD NEWS: Your fine-tuned model is ready to use!\n\n"
-                        f"RECOMMENDED: Use the model directly (no Ollama conversion needed):\n"
-                        f"  • Go to the chat page\n"
-                        f"  • Select '{model_name}' from the model dropdown\n"
-                        f"  • Start chatting! The model works perfectly without Ollama.\n\n"
-                        f"📦 Merged model saved at: {merged_model_path}\n\n"
-                        f"⚠️  Ollama conversion requires GGUF format (manual conversion needed):\n"
-                        f"  • Ollama cannot directly use PyTorch models\n"
-                        f"  • Requires conversion using llama.cpp\n"
-                        f"  • See instructions at: {instructions_path}\n\n"
-                        f"💡 Tip: The direct model usage is faster and doesn't require conversion!"
-                    )
-                else:
-                    raise Exception(f"GGUF export failed: {error_msg}")
-            
-            # Step 3: Create Ollama Modelfile
-            modelfile_path = os.path.join(gguf_path, "Modelfile")
-            
-            # Find the GGUF file
-            gguf_files = [f for f in os.listdir(gguf_path) if f.endswith('.gguf')]
-            if not gguf_files:
-                raise Exception(f"No GGUF files found in {gguf_path}")
-            
-            gguf_file = os.path.join(gguf_path, gguf_files[0])
+            # Step 2: Create Ollama Modelfile
+            modelfile_path = os.path.join(merged_model_path, "Modelfile")
             
             with open(modelfile_path, 'w') as f:
-                # Use absolute path for the GGUF file
-                abs_gguf_path = os.path.abspath(gguf_file)
-                f.write(f"FROM {abs_gguf_path}\n")
+                f.write(f"FROM {merged_model_path}\n")
                 f.write("TEMPLATE \"\"\"{{ if .System }}<|start_header_id|>system<|end_header_id|>\n\n{{ .System }}<|eot_id|>{{ end }}{{ if .Prompt }}<|start_header_id|>user<|end_header_id|>\n\n{{ .Prompt }}<|eot_id|>{{ end }}<|start_header_id|>assistant<|end_header_id|>\n\n{{ .Response }}<|eot_id|>\"\"\"\n")
                 f.write("PARAMETER stop \"<|start_header_id|>\"\n")
                 f.write("PARAMETER stop \"<|end_header_id|>\"\n")
                 f.write("PARAMETER stop \"<|eot_id|>\"\n")
                 f.write("PARAMETER temperature 0.7\n")
             
-            # Step 4: Use Ollama API to create the model
-            print(f"[Convert] Creating model in Ollama via API...")
-            try:
-                # Read the Modelfile content
-                with open(modelfile_path, 'r') as f:
-                    modelfile_content = f.read()
-                
-                # Use Ollama API to create the model
-                response = requests.post(
-                    f"{ollama_base_url}/api/create",
-                    json={
-                        "name": ollama_model_name,
-                        "modelfile": modelfile_content
-                    },
-                    timeout=600  # 10 minutes timeout for large models
-                )
-                
-                if response.status_code != 200:
-                    error_msg = response.text or f"HTTP {response.status_code}"
-                    raise Exception(f"Ollama API error: {error_msg}")
-                
-                print(f"[Convert] Model '{ollama_model_name}' created successfully in Ollama")
-                
-                # Update status
-                self._update_trained_model_status(model_path, ollama_ready=True, ollama_name=ollama_model_name)
-                
-                return ollama_model_name
-                
-            except requests.exceptions.RequestException as e:
-                # Fallback: provide instructions for manual import
+            # Step 3: Use Ollama to import the model
+            # Note: Ollama needs the model in GGUF format
+            # For now, we'll create the modelfile and let user know they may need to convert manually
+            # In production, you'd use llama.cpp to convert to GGUF first
+            
+            # Try to create model with Ollama (may fail if not in GGUF format)
+            result = subprocess.run(
+                ['ollama', 'create', ollama_model_name, '-f', modelfile_path],
+                capture_output=True,
+                text=True,
+                timeout=300
+            )
+            
+            if result.returncode != 0:
+                # If direct import fails, provide instructions
                 raise Exception(
-                    f"Failed to create model via Ollama API at {ollama_base_url}. "
-                    f"The Modelfile is saved at {modelfile_path}. "
-                    f"You can manually import it using:\n"
-                    f"  ollama create {ollama_model_name} -f {modelfile_path}\n"
-                    f"API Error: {str(e)}"
+                    f"Direct Ollama import failed. The merged model is saved at {merged_model_path}. "
+                    f"You may need to convert it to GGUF format using llama.cpp first. "
+                    f"Error: {result.stderr}"
                 )
+            
+            return ollama_model_name
             
         except Exception as e:
             raise Exception(f"Error converting to Ollama: {str(e)}")

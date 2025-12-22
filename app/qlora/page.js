@@ -13,7 +13,6 @@ const QLoRAPage = () => {
   const [maxSteps, setMaxSteps] = useState(100)
   const [learningRate, setLearningRate] = useState(0.0002)
   const [modelName, setModelName] = useState('')
-  const [converting, setConverting] = useState(false)
 
   useEffect(() => {
     loadAvailableModels()
@@ -111,30 +110,6 @@ const QLoRAPage = () => {
     }
   }
 
-  const handleConvertToOllama = async (modelPath) => {
-    setConverting(true)
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/qlora/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_path: modelPath })
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Conversion failed')
-      }
-
-      const data = await response.json()
-      alert(`Model converted successfully! You can now use it in the chat page.`)
-      loadAvailableModels()
-    } catch (error) {
-      console.error('Error converting model:', error)
-      alert(`Conversion failed: ${error.message}`)
-    } finally {
-      setConverting(false)
-    }
-  }
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-slate-50 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950">
@@ -340,18 +315,9 @@ const QLoRAPage = () => {
                       <p className="font-semibold text-slate-800 dark:text-slate-100">{model.name}</p>
                       <p className="text-sm text-slate-600 dark:text-slate-400">{model.path}</p>
                       <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                        {model.ollama_ready ? '✅ Ready for Ollama' : '⚠️ Needs conversion'}
+                        ✅ Ready to use in chat
                       </p>
                     </div>
-                    {!model.ollama_ready && (
-                      <button
-                        onClick={() => handleConvertToOllama(model.path)}
-                        disabled={converting}
-                        className="px-4 py-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {converting ? 'Converting...' : 'Convert to Ollama'}
-                      </button>
-                    )}
                   </div>
                 ))}
               </div>
@@ -369,7 +335,7 @@ const QLoRAPage = () => {
             <ul className="space-y-2 text-sm text-blue-800 dark:text-blue-200">
               <li>• Training uses your uploaded documents from the Documents page</li>
               <li>• QLoRA fine-tunes only ~1% of model parameters, saving memory</li>
-              <li>• After training, convert the model to Ollama format to use it in chat</li>
+              <li>• After training, fine-tuned models are ready to use immediately in chat</li>
               <li>• Fine-tuned models will appear in the chat page model selector</li>
             </ul>
           </div>

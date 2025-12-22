@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Backend Flask API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: engabusami-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - FLASK_ENV=production
+    volumes:
+      # Persist uploads, models, and vector store
+      - ./backend/uploads:/app/uploads
+      - ./backend/qlora_models:/app/qlora_models
+      - ./backend/faiss_index:/app/faiss_index
+    networks:
+      - engabusami-network
+    restart: unless-stopped
+    # Uncomment the following lines if you have GPU support
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Next.js
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: engabusami-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL:-http://localhost:5000}
+      - NODE_ENV=production
+    depends_on:
+      - backend
+    networks:
+      - engabusami-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Optional: Ollama service (uncomment if you want to run Ollama in Docker)
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   container_name: engabusami-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama-data:/root/.ollama
+  #   networks:
+  #     - engabusami-network
+  #   restart: unless-stopped
+  #   # Uncomment for GPU support
+  #   # deploy:
+  #   #   resources:
+  #   #     reservations:
+  #   #       devices:
+  #   #         - driver: nvidia
+  #   #           count: 1
+  #   #           capabilities: [gpu]
+
+networks:
+  engabusami-network:
+    driver: bridge
+
+# Uncomment if using Ollama service
+# volumes:
+#   ollama-data:
+

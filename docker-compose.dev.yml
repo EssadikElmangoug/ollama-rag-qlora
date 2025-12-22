@@ -1,0 +1,54 @@
+version: '3.8'
+
+# Development Docker Compose with hot reload
+services:
+  # Backend Flask API (Development)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: engabusami-backend-dev
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    volumes:
+      # Mount code for hot reload
+      - ./backend:/app
+      - ./backend/uploads:/app/uploads
+      - ./backend/qlora_models:/app/qlora_models
+      - ./backend/faiss_index:/app/faiss_index
+    networks:
+      - engabusami-network
+    restart: unless-stopped
+    command: python3 -m flask run --host=0.0.0.0 --port=5000 --reload
+
+  # Frontend Next.js (Development)
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: engabusami-frontend-dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:5000
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - backend
+    networks:
+      - engabusami-network
+    restart: unless-stopped
+    command: npm run dev
+
+networks:
+  engabusami-network:
+    driver: bridge
+

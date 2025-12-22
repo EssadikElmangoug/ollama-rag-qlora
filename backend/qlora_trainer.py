@@ -197,11 +197,27 @@ class QLoRATrainer:
                 )
                 
                 # Custom callback to update progress
-                class ProgressCallback:
-                    def __init__(self, trainer_instance):
+                from transformers import TrainerCallback
+                
+                class ProgressCallback(TrainerCallback):
+                    def __init__(self, trainer_instance, total_steps):
                         self.trainer = trainer_instance
+                        self.total_steps = total_steps
+                    
+                    def on_train_begin(self, args, state, control, **kwargs):
+                        """Called at the beginning of training"""
+                        try:
+                            # Set total steps from training args or state
+                            if hasattr(state, 'max_steps') and state.max_steps:
+                                self.trainer.training_status['progress']['total'] = int(state.max_steps)
+                            else:
+                                self.trainer.training_status['progress']['total'] = self.total_steps
+                            print(f"[ProgressCallback] Training started. Total steps: {self.trainer.training_status['progress']['total']}")
+                        except Exception as e:
+                            print(f"Error in on_train_begin: {e}")
                     
                     def on_log(self, args, state, control, logs=None, **kwargs):
+                        """Called when logging occurs"""
                         try:
                             if logs and 'loss' in logs:
                                 self.trainer.training_status['progress']['loss'] = float(logs['loss'])
@@ -209,8 +225,17 @@ class QLoRATrainer:
                                 self.trainer.training_status['progress']['step'] = int(state.global_step)
                         except Exception as e:
                             print(f"Error updating progress: {e}")
+                    
+                    def on_train_end(self, args, state, control, **kwargs):
+                        """Called at the end of training"""
+                        try:
+                            if hasattr(state, 'global_step'):
+                                self.trainer.training_status['progress']['step'] = int(state.global_step)
+                            print(f"[ProgressCallback] Training completed. Final step: {self.trainer.training_status['progress']['step']}")
+                        except Exception as e:
+                            print(f"Error in on_train_end: {e}")
                 
-                trainer.add_callback(ProgressCallback(self))
+                trainer.add_callback(ProgressCallback(self, max_steps))
                 
                 # Train
                 trainer.train()

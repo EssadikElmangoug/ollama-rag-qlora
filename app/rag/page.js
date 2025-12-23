@@ -64,54 +64,54 @@ const RAGPage = () => {
 
     setUploading(true)
 
-    // Process each file
+    // Create file objects with unique IDs and add them to state immediately with 'uploading' status
     const newFiles = validFiles.map((file, index) => ({
       id: Date.now() + index,
       name: file.name,
       size: file.size,
       type: file.type || 'unknown',
       file: file,
-      status: 'uploading',
+      status: 'uploading', // Start with uploading status
       uploadedAt: new Date(),
     }))
 
-    // Upload all files - backend now supports multiple files in one request
-    try {
-      const formData = new FormData()
-      // Append all files to FormData
-      validFiles.forEach(file => {
+    // Add files to state immediately so they show as "uploading"
+    setFiles(prev => [...prev, ...newFiles])
+
+    // Upload files one by one to show individual progress
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i]
+      const fileObj = newFiles[i]
+      
+      try {
+        const formData = new FormData()
         formData.append('file', file)
-      })
 
-      const response = await fetch(`${BACKEND_URL}/api/upload`, {
-        method: 'POST',
-        body: formData
-      })
+        const response = await fetch(`${BACKEND_URL}/api/upload`, {
+          method: 'POST',
+          body: formData
+        })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || 'Upload failed')
-      }
+        if (!response.ok) {
+          const errorData = await response.json()
+          throw new Error(errorData.error || 'Upload failed')
+        }
 
-      const data = await response.json()
-      
-      // Handle both single file (backward compatibility) and multiple files response
-      const uploadedFiles = data.files || [data]
-      
-      // Create a map of original filenames to upload results for easier matching
-      const resultMap = new Map()
-      uploadedFiles.forEach(result => {
-        const originalName = result.original_filename || ''
-        resultMap.set(originalName, result)
-      })
-      
-      // Update file statuses based on response - match by original filename
-      newFiles.forEach((newFile) => {
-        const uploadResult = resultMap.get(newFile.name)
+        const data = await response.json()
+        
+        // Handle both single file response and multiple files response
+        let uploadResult
+        if (data.files && Array.isArray(data.files)) {
+          // Multiple files response - find matching file
+          uploadResult = data.files.find(r => r.original_filename === file.name) || data.files[0]
+        } else {
+          // Single file response
+          uploadResult = data
+        }
         
         if (uploadResult && uploadResult.success !== false) {
           // Extract original filename from server response
-          let displayName = uploadResult.original_filename || newFile.name
+          let displayName = uploadResult.original_filename || fileObj.name
           // If server returned a timestamped filename, extract original name
           const timestampPattern = /^\d{8}_\d{6}(_\d{6})?_/
           if (uploadResult.filename && timestampPattern.test(uploadResult.filename)) {
@@ -127,10 +127,17 @@ const RAGPage = () => {
             }
           }
           
+          // Update file status to 'uploaded'
           setFiles(prev =>
             prev.map(f =>
-              f.id === newFile.id
-                ? { ...f, status: 'uploaded', serverFilename: uploadResult.filename, name: displayName }
+              f.id === fileObj.id
+                ? { 
+                    ...f, 
+                    status: 'uploaded', 
+                    serverFilename: uploadResult.filename, 
+                    name: displayName,
+                    size: uploadResult.size || f.size
+                  }
                 : f
             )
           )
@@ -138,32 +145,32 @@ const RAGPage = () => {
           // Upload succeeded but processing failed
           setFiles(prev =>
             prev.map(f =>
-              f.id === newFile.id 
+              f.id === fileObj.id 
                 ? { ...f, status: 'error', error: uploadResult.processing_error || 'Processing failed' } 
                 : f
             )
           )
         } else {
-          // No result found for this file - mark as error
+          // No result found for this file
           setFiles(prev =>
             prev.map(f =>
-              f.id === newFile.id 
+              f.id === fileObj.id 
                 ? { ...f, status: 'error', error: 'Upload result not found' } 
                 : f
             )
           )
         }
-      })
-    } catch (error) {
-      console.error('Error uploading files:', error)
-      // Mark all files as error
-      newFiles.forEach(file => {
+      } catch (error) {
+        console.error('Error uploading file:', error)
+        // Mark this file as error
         setFiles(prev =>
           prev.map(f =>
-            f.id === file.id ? { ...f, status: 'error', error: error.message } : f
+            f.id === fileObj.id 
+              ? { ...f, status: 'error', error: error.message } 
+              : f
           )
         )
-      })
+      }
     }
 
     setUploading(false)
@@ -459,19 +466,19 @@ const RAGPage = () => {
                               {file.uploadedAt.toLocaleString()}
                             </span>
                             <span
-                              className={`text-xs px-2 py-0.5 rounded-full ${
+                              className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                                 file.status === 'uploaded'
                                   ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                                   : file.status === 'uploading'
-                                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 animate-pulse'
                                   : 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
                               }`}
                             >
                               {file.status === 'uploaded'
-                                ? 'Uploaded'
+                                ? '✓ Uploaded'
                                 : file.status === 'uploading'
-                                ? 'Uploading...'
-                                : 'Error'}
+                                ? '⏳ Uploading...'
+                                : `✗ ${file.error || 'Error'}`}
                             </span>
                           </div>
                         </div>
@@ -507,6 +514,12 @@ const RAGPage = () => {
                         <div className="w-full bg-slate-200/50 dark:bg-slate-700/50 rounded-full h-2.5 overflow-hidden">
                           <div className="bg-gradient-to-r from-blue-500 to-blue-600 h-2.5 rounded-full animate-pulse shadow-lg" style={{ width: '60%' }}></div>
                         </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-2">Uploading and processing document...</p>
+                      </div>
+                    )}
+                    {file.status === 'error' && file.error && (
+                      <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                        <p className="text-xs text-red-700 dark:text-red-300 font-medium">Error: {file.error}</p>
                       </div>
                     )}
                   </div>

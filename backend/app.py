@@ -219,7 +219,11 @@ def upload_file():
         # All files succeeded
         if len(results) == 1:
             # Single file - return as before for backward compatibility
-            return jsonify(results[0]), 200
+            # But ensure it has all required fields
+            result = results[0]
+            if 'success' not in result:
+                result['success'] = True
+            return jsonify(result), 200
         else:
             # Multiple files
             return jsonify({

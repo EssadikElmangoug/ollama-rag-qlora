@@ -105,6 +105,18 @@ class QLoRATrainer:
                 from transformers import DataCollatorForSeq2Seq
                 from datasets import Dataset
                 
+                # Check if model is GGUF (inference-only, cannot be used for training)
+                if 'gguf' in base_model.lower():
+                    raise Exception(
+                        f"GGUF models cannot be used for training! '{base_model}' is an inference-only model.\n\n"
+                        "GGUF models are quantized formats for inference (used with llama.cpp), not for PyTorch training.\n\n"
+                        "Please use a training-compatible model instead, such as:\n"
+                        "• unsloth/Llama-3.2-3B-Instruct-bnb-4bit\n"
+                        "• unsloth/Llama-3.1-8B-Instruct-bnb-4bit\n"
+                        "• unsloth/Mistral-7B-Instruct-v0.3-bnb-4bit\n"
+                        "• Or any model WITHOUT '-GGUF' in the name"
+                    )
+                
                 # Prepare training data
                 training_data = self.prepare_training_data_from_documents()
                 if not training_data:

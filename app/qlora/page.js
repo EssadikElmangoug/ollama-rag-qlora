@@ -52,6 +52,12 @@ const QLoRAPage = () => {
       return
     }
 
+    // Check if model is GGUF (inference-only, not for training)
+    if (selectedBaseModel.toLowerCase().includes('gguf')) {
+      alert('❌ GGUF models cannot be used for training!\n\nGGUF models are for inference only. Please use a training-compatible model like:\n• unsloth/Llama-3.2-3B-Instruct-bnb-4bit\n• unsloth/Llama-3.1-8B-Instruct-bnb-4bit\n• unsloth/Mistral-7B-Instruct-v0.3-bnb-4bit\n\nOr any model WITHOUT "-GGUF" in the name.')
+      return
+    }
+
     setTrainingStatus('training')
     setTrainingProgress({ step: 0, total: maxSteps, loss: 0 })
 
@@ -192,13 +198,23 @@ const QLoRAPage = () => {
                   type="text"
                   value={selectedBaseModel}
                   onChange={(e) => setSelectedBaseModel(e.target.value)}
-                  placeholder="e.g., unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
+                  placeholder="e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit"
                   className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   disabled={trainingStatus === 'training'}
                 />
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Paste any Unsloth-compatible model tag from Hugging Face (e.g., unsloth/Nemotron-3-Nano-30B-A3B-GGUF)
+                  Paste any Unsloth-compatible model tag from Hugging Face
                 </p>
+                {selectedBaseModel.toLowerCase().includes('gguf') && (
+                  <div className="mt-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
+                    <p className="text-xs text-yellow-800 dark:text-yellow-200 font-medium">
+                      ⚠️ Warning: GGUF models cannot be used for training!
+                    </p>
+                    <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">
+                      GGUF models are for inference only. Use models with "-bnb-4bit" or without "-GGUF" suffix.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -338,6 +354,9 @@ const QLoRAPage = () => {
               <li>• QLoRA fine-tunes only ~1% of model parameters, saving memory</li>
               <li>• After training, fine-tuned models are ready to use immediately in chat</li>
               <li>• Fine-tuned models will appear in the chat page model selector</li>
+              <li className="font-semibold mt-2">⚠️ Model Selection:</li>
+              <li>• Use models with "-bnb-4bit" suffix or base model names (e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit)</li>
+              <li>• ❌ Do NOT use GGUF models (ending in "-GGUF") - they are for inference only!</li>
             </ul>
           </div>
         </div>

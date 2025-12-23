@@ -308,7 +308,15 @@ const QLoRAPage = () => {
                   className="w-full"
                   disabled={trainingStatus === 'training'}
                 />
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Higher rank = more capacity but more parameters</p>
+                <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">What is LoRA Rank?</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Think of rank as how much the model can learn from your documents. 
+                    <strong className="text-slate-800 dark:text-slate-200"> Lower values (8-16)</strong> are faster and use less memory, good for simple tasks. 
+                    <strong className="text-slate-800 dark:text-slate-200"> Higher values (32-64)</strong> allow the model to learn more complex patterns but take longer to train. 
+                    Start with 16 for most cases.
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -324,6 +332,16 @@ const QLoRAPage = () => {
                   className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   disabled={trainingStatus === 'training'}
                 />
+                <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">What are Training Steps?</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Steps are how many times the model looks at your documents and learns from them. 
+                    <strong className="text-slate-800 dark:text-slate-200"> More steps = better learning</strong>, but also longer training time. 
+                    For small datasets (under 50 documents), try 50-100 steps. 
+                    For larger datasets, 200-500 steps work well. 
+                    Start with 100 and adjust based on results.
+                  </p>
+                </div>
               </div>
 
               <div>
@@ -340,6 +358,16 @@ const QLoRAPage = () => {
                   className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   disabled={trainingStatus === 'training'}
                 />
+                <div className="mt-2 p-3 rounded-lg bg-slate-50 dark:bg-slate-700/50 border border-slate-200 dark:border-slate-600">
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium mb-1">What is Learning Rate?</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    Learning rate controls how fast the model learns. 
+                    <strong className="text-slate-800 dark:text-slate-200"> Too high (0.001+)</strong> and it might learn too quickly and miss important details. 
+                    <strong className="text-slate-800 dark:text-slate-200"> Too low (0.0001)</strong> and it learns very slowly. 
+                    The default value of 0.0002 is a good balance for most cases. 
+                    Only change this if you're experienced with training models.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -373,7 +401,7 @@ const QLoRAPage = () => {
                 </div>
                 {trainingProgress.loss > 0 && (
                   <div className="text-sm text-slate-600 dark:text-slate-400">
-                    Loss: {trainingProgress.loss.toFixed(4)}
+                    {/* Loss: {trainingProgress.loss.toFixed(4)} */}
                   </div>
                 )}
               </div>

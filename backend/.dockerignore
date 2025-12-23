@@ -29,6 +29,8 @@ qlora_models/*
 !qlora_models/.gitkeep
 faiss_index/*
 !faiss_index/.gitkeep
+hf_models/*
+!hf_models/.gitkeep
 
 # Logs
 *.log

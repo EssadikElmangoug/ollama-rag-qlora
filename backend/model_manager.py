@@ -10,7 +10,8 @@ try:
 except ImportError:
     snapshot_download = None
 from transformers import AutoTokenizer
-from unsloth import FastLanguageModel
+# Don't import unsloth at module level - import it lazily when needed
+# This allows the app to start even without GPU
 
 class ModelManager:
     def __init__(self, models_dir="./hf_models"):
@@ -160,6 +161,23 @@ class ModelManager:
             tuple of (model, tokenizer) or None if error
         """
         try:
+            # Lazy import unsloth - only when actually needed
+            try:
+                from unsloth import FastLanguageModel
+            except ImportError:
+                raise Exception("Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
+            except Exception as e:
+                error_msg = str(e).lower()
+                if "gpu" in error_msg or "accelerator" in error_msg or "cuda" in error_msg or "notimplemented" in error_msg:
+                    raise Exception(
+                        f"Unsloth cannot detect GPU: {e}\n\n"
+                        "Please ensure:\n"
+                        "1. NVIDIA Container Toolkit is installed\n"
+                        "2. Docker Compose has GPU support enabled\n"
+                        "3. GPU is properly exposed to container"
+                    )
+                raise
+            
             # Check if it's a fine-tuned model
             fine_tuned_path = f"./qlora_models/{model_name}"
             if os.path.exists(fine_tuned_path):

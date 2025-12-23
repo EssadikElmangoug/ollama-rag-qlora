@@ -20,13 +20,10 @@ except ImportError:
     print("[Warning] psutil not installed. Please install with: pip install psutil>=5.9.0")
     psutil = None
 
-# Import unsloth at module level (before transformers/peft) to ensure optimizations are applied
-# This also triggers cache creation before Flask's reloader starts watching
-try:
-    import unsloth  # This triggers the patching and cache creation early
-    UNSLOTH_AVAILABLE = True
-except ImportError:
-    UNSLOTH_AVAILABLE = False
+# Don't import unsloth at module level - import it lazily when needed
+# This allows the app to start even if GPU is not available
+# Unsloth will be imported when training is actually started
+UNSLOTH_AVAILABLE = None  # Will be set to True/False when first checked
 
 class QLoRATrainer:
     def __init__(self):
@@ -298,9 +295,53 @@ class QLoRATrainer:
                                 f"4. Reduce batch size or other memory-intensive settings"
                             )
                 
-                # Check if unsloth is available
+                # Lazy import unsloth - only when actually needed for training
+                # This allows the app to start even without GPU
+                global UNSLOTH_AVAILABLE
+                if UNSLOTH_AVAILABLE is None:
+                    try:
+                        # Check if GPU is available first
+                        import torch
+                        if not torch.cuda.is_available():
+                            print("[Training] Warning: CUDA not available. Training will be slow or may fail.")
+                        
+                        # Now try to import unsloth
+                        import unsloth
+                        UNSLOTH_AVAILABLE = True
+                        print("[Training] Unsloth imported successfully")
+                    except ImportError:
+                        UNSLOTH_AVAILABLE = False
+                        raise Exception("Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
+                    except Exception as e:
+                        # If unsloth fails to import due to GPU issues, we'll try to continue
+                        error_msg = str(e).lower()
+                        if "gpu" in error_msg or "accelerator" in error_msg or "cuda" in error_msg or "notimplemented" in error_msg:
+                            print(f"[Training] Warning: Unsloth GPU detection failed: {e}")
+                            print("[Training] Attempting to continue - GPU may not be properly configured in Docker")
+                            # Try importing again - sometimes it works on second try
+                            try:
+                                import unsloth
+                                UNSLOTH_AVAILABLE = True
+                                print("[Training] Unsloth imported successfully on retry")
+                            except Exception as e2:
+                                UNSLOTH_AVAILABLE = False
+                                raise Exception(
+                                    f"Unsloth cannot initialize: {e2}\n\n"
+                                    "This usually means:\n"
+                                    "1. GPU is not properly exposed to Docker container\n"
+                                    "2. NVIDIA Container Toolkit is not installed\n"
+                                    "3. Docker Compose GPU configuration is missing\n\n"
+                                    "Please ensure:\n"
+                                    "- NVIDIA Container Toolkit is installed: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html\n"
+                                    "- Docker Compose has GPU support enabled (see docker-compose.yml)\n"
+                                    "- Run: docker compose up with GPU support"
+                                )
+                        else:
+                            UNSLOTH_AVAILABLE = False
+                            raise
+                
                 if not UNSLOTH_AVAILABLE:
-                    raise Exception("Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
+                    raise Exception("Unsloth not available. Please check installation and GPU configuration.")
                 
                 # Import required libraries
                 try:

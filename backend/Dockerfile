@@ -1,5 +1,6 @@
 # Backend Dockerfile for Flask API with GPU support
-FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+# Using newer CUDA image (12.1.0 is deprecated, using 12.4.0)
+FROM nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive
@@ -32,7 +33,7 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p uploads qlora_models faiss_index
+RUN mkdir -p uploads qlora_models faiss_index hf_models
 
 # Expose Flask port
 EXPOSE 5000

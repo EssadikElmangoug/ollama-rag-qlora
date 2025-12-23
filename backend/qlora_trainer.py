@@ -72,6 +72,83 @@ class QLoRATrainer:
         except Exception as e:
             raise Exception(f"Error preparing training data: {str(e)}")
     
+    def _detect_model_type(self, base_model, model):
+        """Detect model type from model name or config"""
+        model_name_lower = base_model.lower()
+        
+        # Check model name patterns
+        if 'gemma' in model_name_lower or 'functiongemma' in model_name_lower:
+            return 'gemma'
+        elif 'mistral' in model_name_lower:
+            return 'mistral'
+        elif 'qwen' in model_name_lower:
+            return 'qwen'
+        elif 'llama' in model_name_lower:
+            return 'llama'
+        elif 'phi' in model_name_lower:
+            return 'phi'
+        
+        # Try to detect from model config
+        try:
+            config = model.config if hasattr(model, 'config') else None
+            if config:
+                model_type = getattr(config, 'model_type', '').lower()
+                if model_type:
+                    return model_type
+        except:
+            pass
+        
+        # Default to llama if can't detect
+        return 'llama'
+    
+    def _get_chat_template_for_model(self, model_type):
+        """Get appropriate chat template name for model type"""
+        template_map = {
+            'gemma': 'gemma',
+            'mistral': 'mistral',
+            'qwen': 'qwen',
+            'llama': 'llama-3.1',
+            'phi': 'phi',
+        }
+        return template_map.get(model_type, 'llama-3.1')
+    
+    def _get_train_on_responses_parts(self, model_type):
+        """Get instruction_part and response_part for train_on_responses_only based on model type"""
+        # Llama models (Llama 3.1+)
+        if model_type == 'llama':
+            return (
+                "<|start_header_id|>user<|end_header_id|>\n\n",
+                "<|start_header_id|>assistant<|end_header_id|>\n\n"
+            )
+        # Gemma models
+        elif model_type == 'gemma':
+            return (
+                "<start_of_turn>user\n",
+                "<start_of_turn>model\n"
+            )
+        # Mistral models
+        elif model_type == 'mistral':
+            return (
+                "[INST] ",
+                " [/INST]"
+            )
+        # Qwen models
+        elif model_type == 'qwen':
+            return (
+                "<|im_start|>user\n",
+                "<|im_start|>assistant\n"
+            )
+        # Phi models
+        elif model_type == 'phi':
+            return (
+                "<|user|>\n",
+                "<|assistant|>\n"
+            )
+        # Unknown model type - return None to skip train_on_responses_only
+        else:
+            print(f"[Training] Unknown model type {model_type}, skipping train_on_responses_only")
+            return None, None
+    
     def train_model(self, base_model, model_name, lora_rank, max_steps, learning_rate):
         """Train a QLoRA model using Unsloth"""
         # Check if training is already in progress
@@ -130,6 +207,18 @@ class QLoRATrainer:
                     load_in_4bit=True,
                 )
                 
+                # Auto-detect model type from base model name (before LoRA configuration)
+                model_type = self._detect_model_type(base_model, model)
+                chat_template_name = self._get_chat_template_for_model(model_type)
+                
+                print(f"[Training] Detected model type: {model_type}, using chat template: {chat_template_name}")
+                
+                # Setup chat template first (before LoRA configuration)
+                tokenizer = get_chat_template(
+                    tokenizer,
+                    chat_template=chat_template_name,
+                )
+                
                 # Configure LoRA
                 model = FastLanguageModel.get_peft_model(
                     model,
@@ -143,12 +232,6 @@ class QLoRATrainer:
                     bias="none",
                     use_gradient_checkpointing="unsloth",
                     random_state=3407,
-                )
-                
-                # Setup chat template
-                tokenizer = get_chat_template(
-                    tokenizer,
-                    chat_template="llama-3.1",
                 )
                 
                 # Prepare dataset
@@ -201,12 +284,18 @@ class QLoRATrainer:
                     args=training_args,
                 )
                 
-                # Train on responses only
-                trainer = train_on_responses_only(
-                    trainer,
-                    instruction_part="<|start_header_id|>user<|end_header_id|>\n\n",
-                    response_part="<|start_header_id|>assistant<|end_header_id|>\n\n",
-                )
+                # Get instruction and response parts based on model type
+                instruction_part, response_part = self._get_train_on_responses_parts(model_type)
+                
+                # Train on responses only (if parts are available)
+                if instruction_part and response_part:
+                    trainer = train_on_responses_only(
+                        trainer,
+                        instruction_part=instruction_part,
+                        response_part=response_part,
+                    )
+                else:
+                    print(f"[Training] Skipping train_on_responses_only for {model_type} (using default training)")
                 
                 # Custom callback to update progress
                 from transformers import TrainerCallback

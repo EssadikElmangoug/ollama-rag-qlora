@@ -220,12 +220,33 @@ def load_model_for_inference(model_name):
 def clear_model_cache():
     """Clear cached models to free up GPU memory"""
     import torch
+    import gc
     global loaded_models_cache
+    
+    # Clear all cached models
+    for model_name, (model, tokenizer) in list(loaded_models_cache.items()):
+        try:
+            del model
+            del tokenizer
+        except:
+            pass
+    
     loaded_models_cache.clear()
+    
+    # Aggressive memory cleanup
+    gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
-    print("Model cache cleared")
+        torch.cuda.reset_peak_memory_stats()
+        
+        # Get memory info
+        total_memory = torch.cuda.get_device_properties(0).total_memory
+        reserved = torch.cuda.memory_reserved(0)
+        free_memory = total_memory - reserved
+        print(f"Model cache cleared. Free GPU memory: {free_memory / 1024**3:.2f} GB")
+    else:
+        print("Model cache cleared")
 
 def generate_with_model(model, tokenizer, messages, max_new_tokens=512):
     """Generate response using a Hugging Face model"""
@@ -391,8 +412,41 @@ def qlora_train():
         if qlora_trainer.training_status['status'] == 'training':
             return jsonify({'error': 'Training already in progress'}), 400
         
-        # Clear model cache before training to free up GPU memory
+        # Aggressive memory clearing before training
+        import torch
+        import gc
+        import time
+        
+        # Clear model cache first
         clear_model_cache()
+        
+        # Additional aggressive cleanup with delay
+        if torch.cuda.is_available():
+            gc.collect()
+            torch.cuda.empty_cache()
+            torch.cuda.synchronize()
+            time.sleep(2)  # Wait for memory to be released
+            
+            # Check memory status
+            total = torch.cuda.get_device_properties(0).total_memory
+            reserved = torch.cuda.memory_reserved(0)
+            allocated = torch.cuda.memory_allocated(0)
+            free = total - reserved
+            
+            print(f"[Training Start] GPU Memory Status:")
+            print(f"  Total: {total/1024**3:.2f} GB")
+            print(f"  Reserved: {reserved/1024**3:.2f} GB")
+            print(f"  Allocated: {allocated/1024**3:.2f} GB")
+            print(f"  Free: {free/1024**3:.2f} GB")
+            
+            # Warn if severe fragmentation
+            if reserved > 10 * 1024**3 and allocated < 5 * 1024**3:
+                return jsonify({
+                    'error': f'Severe GPU memory fragmentation detected!\n\n'
+                            f'PyTorch has reserved {reserved/1024**3:.2f} GB but only using {allocated/1024**3:.2f} GB.\n'
+                            f'Only {free/1024**3:.2f} GB is available.\n\n'
+                            f'Please restart the Flask server to completely clear GPU memory.'
+                }), 400
         
         # Start training
         qlora_trainer.train_model(

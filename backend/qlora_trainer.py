@@ -213,16 +213,65 @@ class QLoRATrainer:
                 self.training_status['error'] = None
                 print(f"[Training Thread] Status set to training")
                 
-                # Clear GPU cache before training to avoid memory issues
+                # Aggressive memory clearing before training
                 import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-                    print(f"[Training] GPU cache cleared. Free memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+                import gc
+                import os
                 
                 # Set PyTorch memory allocation config to reduce fragmentation
-                import os
                 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+                
+                if torch.cuda.is_available():
+                    # Force garbage collection first
+                    gc.collect()
+                    
+                    # Clear all caches multiple times
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    torch.cuda.reset_peak_memory_stats()
+                    
+                    # Get memory info
+                    total_memory = torch.cuda.get_device_properties(0).total_memory
+                    allocated = torch.cuda.memory_allocated(0)
+                    reserved = torch.cuda.memory_reserved(0)
+                    free = total_memory - reserved
+                    
+                    print(f"[Training] GPU Memory Status:")
+                    print(f"  Total: {total_memory / 1024**3:.2f} GB")
+                    print(f"  Allocated: {allocated / 1024**3:.2f} GB")
+                    print(f"  Reserved: {reserved / 1024**3:.2f} GB")
+                    print(f"  Free: {free / 1024**3:.2f} GB")
+                    
+                    # If memory is too full, wait and try again
+                    if free < 2 * 1024**3:  # Less than 2GB free
+                        print(f"[Training] Warning: Low GPU memory ({free / 1024**3:.2f} GB free)")
+                        print(f"[Training] Attempting aggressive memory cleanup...")
+                        
+                        # Try to free reserved memory
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        
+                        # Wait a bit for memory to be released
+                        import time
+                        time.sleep(2)
+                        
+                        # Check again
+                        reserved = torch.cuda.memory_reserved(0)
+                        free = total_memory - reserved
+                        print(f"[Training] After cleanup - Free: {free / 1024**3:.2f} GB")
+                        
+                        if free < 1 * 1024**3:  # Still less than 1GB
+                            raise Exception(
+                                f"Insufficient GPU memory to start training. "
+                                f"Only {free / 1024**3:.2f} GB free out of {total_memory / 1024**3:.2f} GB total.\n\n"
+                                f"Please:\n"
+                                f"1. Close other applications using the GPU\n"
+                                f"2. Restart the server to clear all cached models\n"
+                                f"3. Use a smaller model\n"
+                                f"4. Reduce batch size or other memory-intensive settings"
+                            )
                 
                 # Check if unsloth is available
                 if not UNSLOTH_AVAILABLE:
@@ -261,15 +310,34 @@ class QLoRATrainer:
                 
                 # Load model with proper device handling
                 import torch
+                import gc
                 device = "cuda" if torch.cuda.is_available() else "cpu"
                 print(f"[Training] Loading model on device: {device}")
                 
-                # Clear any existing models from memory
+                # Aggressive memory clearing before model load
                 if torch.cuda.is_available():
+                    gc.collect()
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize()
-                    free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                    
+                    # Get accurate memory info
+                    total_memory = torch.cuda.get_device_properties(0).total_memory
+                    reserved = torch.cuda.memory_reserved(0)
+                    free_memory = total_memory - reserved
                     print(f"[Training] Available GPU memory before loading: {free_memory / 1024**3:.2f} GB")
+                    
+                    # If still too little memory, try one more aggressive cleanup
+                    if free_memory < 3 * 1024**3:  # Less than 3GB
+                        print(f"[Training] Performing final aggressive memory cleanup...")
+                        gc.collect()
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                        import time
+                        time.sleep(1)
+                        
+                        reserved = torch.cuda.memory_reserved(0)
+                        free_memory = total_memory - reserved
+                        print(f"[Training] After final cleanup - Free: {free_memory / 1024**3:.2f} GB")
                 
                 # Try loading with 4-bit first, fallback to 8-bit or full precision if needed
                 load_success = False
@@ -279,12 +347,29 @@ class QLoRATrainer:
                 # First attempt: 4-bit quantization
                 try:
                     print(f"[Training] Attempting to load model with 4-bit quantization...")
+                    
+                    # Final memory check before loading
+                    if torch.cuda.is_available():
+                        reserved = torch.cuda.memory_reserved(0)
+                        total = torch.cuda.get_device_properties(0).total_memory
+                        free = total - reserved
+                        print(f"[Training] Final memory check - Free: {free / 1024**3:.2f} GB, Reserved: {reserved / 1024**3:.2f} GB")
+                        
+                        if free < 1 * 1024**3:  # Less than 1GB free
+                            raise Exception(
+                                f"Cannot load model: Only {free / 1024**3:.2f} GB free GPU memory. "
+                                f"PyTorch has reserved {reserved / 1024**3:.2f} GB indicating severe fragmentation.\n\n"
+                                f"SOLUTION: Please restart the Flask server to completely clear GPU memory."
+                            )
+                    
                     # Explicitly avoid device_map to prevent meta tensor issues
+                    # Use low_cpu_mem_usage to reduce memory footprint during loading
                     model, tokenizer = FastLanguageModel.from_pretrained(
                         model_name=base_model,
                         max_seq_length=2048,
                         dtype=None,
                         load_in_4bit=True,
+                        low_cpu_mem_usage=True,  # Critical for reducing memory usage
                         # Don't use device_map="auto" as it can cause meta tensor issues
                         # device_map=None,  # Explicitly set to None
                     )

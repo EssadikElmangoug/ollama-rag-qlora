@@ -204,8 +204,22 @@ class QLoRATrainer:
         if self.training_status['status'] == 'training':
             raise Exception("Training is already in progress. Please wait for it to complete.")
         
+        # Store parameters for the training worker to access
+        training_base_model = base_model
+        training_model_name = model_name
+        training_lora_rank = lora_rank
+        training_max_steps = max_steps
+        training_learning_rate = learning_rate
+        
         def training_worker():
             try:
+                # Use the stored parameters
+                base_model = training_base_model
+                model_name = training_model_name
+                lora_rank = training_lora_rank
+                max_steps = training_max_steps
+                learning_rate = training_learning_rate
+                
                 print(f"[Training Thread] Starting training for model: {model_name}")
                 self.training_status['status'] = 'training'
                 self.training_status['model_name'] = model_name

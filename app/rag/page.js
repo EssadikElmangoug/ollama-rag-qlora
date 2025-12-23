@@ -75,43 +75,95 @@ const RAGPage = () => {
       uploadedAt: new Date(),
     }))
 
-    // Simulate upload progress
-    for (let i = 0; i < newFiles.length; i++) {
-      setFiles(prev => {
-        const updated = [...prev, newFiles[i]]
-        return updated
+    // Upload all files - backend now supports multiple files in one request
+    try {
+      const formData = new FormData()
+      // Append all files to FormData
+      validFiles.forEach(file => {
+        formData.append('file', file)
       })
 
-      // Upload to Flask backend
-      try {
-        const formData = new FormData()
-        formData.append('file', newFiles[i].file)
-        const response = await fetch(`${BACKEND_URL}/api/upload`, {
-          method: 'POST',
-          body: formData
-        })
+      const response = await fetch(`${BACKEND_URL}/api/upload`, {
+        method: 'POST',
+        body: formData
+      })
 
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.error || 'Upload failed')
-        }
-
-        const data = await response.json()
-        setFiles(prev =>
-          prev.map(f =>
-            f.id === newFiles[i].id
-              ? { ...f, status: 'uploaded', serverFilename: data.filename }
-              : f
-          )
-        )
-      } catch (error) {
-        console.error('Error uploading file:', error)
-        setFiles(prev =>
-          prev.map(f =>
-            f.id === newFiles[i].id ? { ...f, status: 'error', error: error.message } : f
-          )
-        )
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || 'Upload failed')
       }
+
+      const data = await response.json()
+      
+      // Handle both single file (backward compatibility) and multiple files response
+      const uploadedFiles = data.files || [data]
+      
+      // Create a map of original filenames to upload results for easier matching
+      const resultMap = new Map()
+      uploadedFiles.forEach(result => {
+        const originalName = result.original_filename || ''
+        resultMap.set(originalName, result)
+      })
+      
+      // Update file statuses based on response - match by original filename
+      newFiles.forEach((newFile) => {
+        const uploadResult = resultMap.get(newFile.name)
+        
+        if (uploadResult && uploadResult.success !== false) {
+          // Extract original filename from server response
+          let displayName = uploadResult.original_filename || newFile.name
+          // If server returned a timestamped filename, extract original name
+          const timestampPattern = /^\d{8}_\d{6}(_\d{6})?_/
+          if (uploadResult.filename && timestampPattern.test(uploadResult.filename)) {
+            const match = uploadResult.filename.match(/^(\d{8}_\d{6}(_\d{6})?)_(.*)$/)
+            if (match && match[3]) {
+              displayName = uploadResult.original_filename || match[3]
+            } else {
+              // Fallback
+              displayName = uploadResult.original_filename || 
+                (uploadResult.filename.length > 24 && uploadResult.filename[17] === '_'
+                  ? uploadResult.filename.substring(24)
+                  : uploadResult.filename.substring(17))
+            }
+          }
+          
+          setFiles(prev =>
+            prev.map(f =>
+              f.id === newFile.id
+                ? { ...f, status: 'uploaded', serverFilename: uploadResult.filename, name: displayName }
+                : f
+            )
+          )
+        } else if (uploadResult) {
+          // Upload succeeded but processing failed
+          setFiles(prev =>
+            prev.map(f =>
+              f.id === newFile.id 
+                ? { ...f, status: 'error', error: uploadResult.processing_error || 'Processing failed' } 
+                : f
+            )
+          )
+        } else {
+          // No result found for this file - mark as error
+          setFiles(prev =>
+            prev.map(f =>
+              f.id === newFile.id 
+                ? { ...f, status: 'error', error: 'Upload result not found' } 
+                : f
+            )
+          )
+        }
+      })
+    } catch (error) {
+      console.error('Error uploading files:', error)
+      // Mark all files as error
+      newFiles.forEach(file => {
+        setFiles(prev =>
+          prev.map(f =>
+            f.id === file.id ? { ...f, status: 'error', error: error.message } : f
+          )
+        )
+      })
     }
 
     setUploading(false)
@@ -178,15 +230,37 @@ const RAGPage = () => {
         const response = await fetch(`${BACKEND_URL}/api/files`)
         if (response.ok) {
           const data = await response.json()
-          const loadedFiles = data.files.map((file, index) => ({
-            id: Date.now() + index,
-            name: file.filename.split('_', 3).slice(2).join('_') || file.filename, // Remove timestamp prefix
-            size: file.size,
-            type: 'unknown',
-            status: 'uploaded',
-            uploadedAt: new Date(file.uploaded_at),
-            serverFilename: file.filename,
-          }))
+          const loadedFiles = data.files.map((file, index) => {
+            // Extract original filename by removing timestamp prefix
+            // Timestamp formats: 
+            // - YYYYMMDD_HHMMSS_ (17 characters)
+            // - YYYYMMDD_HHMMSS_FFFFFF_ (24 characters with microseconds)
+            let originalName = file.filename
+            // Check if filename starts with timestamp pattern
+            const timestampPattern = /^\d{8}_\d{6}(_\d{6})?_/
+            if (timestampPattern.test(file.filename)) {
+              // Find the position after the last underscore of the timestamp
+              const match = file.filename.match(/^(\d{8}_\d{6}(_\d{6})?)_(.*)$/)
+              if (match && match[3]) {
+                originalName = match[3]
+              } else {
+                // Fallback: remove first 17 or 24 characters
+                originalName = file.filename.length > 24 && file.filename[17] === '_' 
+                  ? file.filename.substring(24) 
+                  : file.filename.substring(17)
+              }
+            }
+            
+            return {
+              id: Date.now() + index,
+              name: originalName || file.filename,
+              size: file.size,
+              type: 'unknown',
+              status: 'uploaded',
+              uploadedAt: new Date(file.uploaded_at),
+              serverFilename: file.filename,
+            }
+          })
           setFiles(loadedFiles)
         }
       } catch (error) {

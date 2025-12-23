@@ -142,60 +142,108 @@ def export_model():
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
+    # Support both single file and multiple files
     if 'file' not in request.files:
         return jsonify({'error': 'No file provided'}), 400
     
-    file = request.files['file']
+    files = request.files.getlist('file')  # Get list of files (works for single or multiple)
     
-    if file.filename == '':
-        return jsonify({'error': 'No file selected'}), 400
+    if not files or len(files) == 0:
+        return jsonify({'error': 'No files selected'}), 400
     
-    if not allowed_file(file.filename):
-        return jsonify({
-            'error': 'File type not allowed',
-            'allowed_types': list(ALLOWED_EXTENSIONS)
-        }), 400
+    results = []
+    errors = []
     
-    try:
-        filename = secure_filename(file.filename)
-        # Add timestamp to avoid filename conflicts
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
-        filename = timestamp + filename
-        filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    for file in files:
+        if file.filename == '':
+            errors.append({'filename': 'empty', 'error': 'No file selected'})
+            continue
         
-        file.save(filepath)
+        if not allowed_file(file.filename):
+            errors.append({
+                'filename': file.filename,
+                'error': f'File type not allowed. Allowed types: {", ".join(ALLOWED_EXTENSIONS)}'
+            })
+            continue
         
-        file_size = os.path.getsize(filepath)
+        try:
+            # Store original filename before processing
+            original_filename = file.filename
+            
+            # Secure the filename and add timestamp
+            secure_name = secure_filename(original_filename)
+            # Add timestamp with microsecond to ensure uniqueness when uploading multiple files
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_%f_')
+            filename = timestamp + secure_name
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            
+            file.save(filepath)
+            
+            file_size = os.path.getsize(filepath)
+            
+            # Process document for RAG
+            processing_result = rag_processor.process_document(filepath, original_filename)
+            
+            if not processing_result.get('success'):
+                results.append({
+                    'message': 'File uploaded but processing failed',
+                    'filename': filename,
+                    'original_filename': original_filename,
+                    'size': file_size,
+                    'uploaded_at': datetime.now().isoformat(),
+                    'processing_error': processing_result.get('error'),
+                    'success': False
+                })
+            else:
+                results.append({
+                    'message': 'File uploaded and processed successfully',
+                    'filename': filename,
+                    'original_filename': original_filename,
+                    'size': file_size,
+                    'uploaded_at': datetime.now().isoformat(),
+                    'processing': {
+                        'chunks_count': processing_result.get('chunks_count'),
+                        'total_pages': processing_result.get('total_pages')
+                    },
+                    'success': True
+                })
         
-        # Process document for RAG
-        original_filename = file.filename
-        processing_result = rag_processor.process_document(filepath, original_filename)
-        
-        if not processing_result.get('success'):
-            # File was saved but processing failed
+        except Exception as e:
+            errors.append({
+                'filename': file.filename,
+                'error': f'Error uploading file: {str(e)}'
+            })
+    
+    # Return results
+    if len(results) > 0 and len(errors) == 0:
+        # All files succeeded
+        if len(results) == 1:
+            # Single file - return as before for backward compatibility
+            return jsonify(results[0]), 200
+        else:
+            # Multiple files
             return jsonify({
-                'message': 'File uploaded but processing failed',
-                'filename': filename,
-                'original_filename': original_filename,
-                'size': file_size,
-                'uploaded_at': datetime.now().isoformat(),
-                'processing_error': processing_result.get('error')
+                'message': f'Successfully uploaded {len(results)} files',
+                'files': results,
+                'count': len(results)
             }), 200
-        
+    elif len(results) > 0 and len(errors) > 0:
+        # Partial success
         return jsonify({
-            'message': 'File uploaded and processed successfully',
-            'filename': filename,
-            'original_filename': original_filename,
-            'size': file_size,
-            'uploaded_at': datetime.now().isoformat(),
-            'processing': {
-                'chunks_count': processing_result.get('chunks_count'),
-                'total_pages': processing_result.get('total_pages')
-            }
-        }), 200
-    
-    except Exception as e:
-        return jsonify({'error': f'Error uploading file: {str(e)}'}), 500
+            'message': f'Uploaded {len(results)} files, {len(errors)} failed',
+            'files': results,
+            'errors': errors,
+            'count': len(results)
+        }), 207  # Multi-Status
+    else:
+        # All failed
+        if len(errors) == 1:
+            return jsonify(errors[0]), 500
+        else:
+            return jsonify({
+                'error': f'Failed to upload {len(errors)} files',
+                'errors': errors
+            }), 500
 
 @app.route('/api/files', methods=['GET'])
 def list_files():

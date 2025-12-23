@@ -388,11 +388,10 @@ class QLoRATrainer:
                         # device_map=None,  # Explicitly set to None
                     )
                     
-                    # Move model to device explicitly to ensure all tensors are initialized
+                    # Don't move quantized models - they're already on the correct device
+                    # Quantized models (4-bit/8-bit) cannot be moved with .cuda()
                     if torch.cuda.is_available():
-                        model = model.cuda()
-                    else:
-                        model = model.cpu()
+                        torch.cuda.empty_cache()
                     
                     # Verify model is not meta tensor by checking lm_head
                     if hasattr(model, 'lm_head'):
@@ -409,8 +408,9 @@ class QLoRATrainer:
                             print(f"[Training] Model loaded successfully with 4-bit quantization")
                             load_success = True
                         except (NotImplementedError, RuntimeError) as e:
-                            if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
-                                print(f"[Training] 4-bit loading resulted in meta tensors, trying 8-bit...")
+                            error_str = str(e).lower()
+                            if "meta tensor" in error_str or "no data" in error_str or "cuda()" in error_str:
+                                print(f"[Training] 4-bit loading issue: {e}, trying 8-bit...")
                                 del model
                                 del tokenizer
                                 torch.cuda.empty_cache() if torch.cuda.is_available() else None
@@ -420,8 +420,9 @@ class QLoRATrainer:
                         load_success = True
                         
                 except Exception as e:
-                    if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
-                        print(f"[Training] 4-bit loading failed with meta tensor error, trying 8-bit...")
+                    error_str = str(e).lower()
+                    if "meta tensor" in error_str or "no data" in error_str or "cuda()" in error_str or "8-bit" in error_str:
+                        print(f"[Training] 4-bit loading failed: {e}, trying 8-bit...")
                     else:
                         print(f"[Training] 4-bit loading failed: {e}, trying 8-bit...")
                 
@@ -433,13 +434,12 @@ class QLoRATrainer:
                             model_name=base_model,
                             max_seq_length=2048,
                             dtype=None,
+                            load_in_4bit=False,  # Must set to False for 8-bit
                             load_in_8bit=True,
                         )
-                        # Move model to device explicitly
+                        # Don't move quantized models - they're already on the correct device
                         if torch.cuda.is_available():
-                            model = model.cuda()
-                        else:
-                            model = model.cpu()
+                            torch.cuda.empty_cache()
                         print(f"[Training] Model loaded successfully with 8-bit quantization")
                         load_success = True
                     except Exception as e:
@@ -453,17 +453,19 @@ class QLoRATrainer:
                         max_seq_length=2048,
                         dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
                         load_in_4bit=False,
+                        load_in_8bit=False,
                     )
-                    # Move model to device explicitly
+                    # Move non-quantized model to device explicitly
                     if torch.cuda.is_available():
                         model = model.cuda()
+                        torch.cuda.empty_cache()
                     else:
                         model = model.cpu()
                     print(f"[Training] Model loaded successfully with full precision")
+                    load_success = True  # Mark as successful
                 
-                # Final verification: Ensure model is on device and not meta
-                # This should already be done above, but double-check
-                if not load_success:
+                # Final verification: Ensure we have a model
+                if not load_success or model is None or tokenizer is None:
                     raise Exception("Failed to load model with any quantization method")
                 
                 # Verify model has actual weights (not meta tensors)

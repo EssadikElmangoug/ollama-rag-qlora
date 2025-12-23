@@ -96,6 +96,50 @@ def install_model():
     except Exception as e:
         return jsonify({'error': f'Error installing model: {str(e)}'}), 500
 
+@app.route('/api/models/delete', methods=['POST'])
+def delete_model():
+    """Delete a model"""
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name', '').strip()
+        
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
+        
+        result = model_manager.delete_model(model_name)
+        
+        if result.get('success'):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 500
+    
+    except Exception as e:
+        return jsonify({'error': f'Error deleting model: {str(e)}'}), 500
+
+@app.route('/api/models/export', methods=['POST'])
+def export_model():
+    """Export a model to a specified path"""
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name', '').strip()
+        export_path = data.get('export_path', '').strip()
+        
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
+        
+        if not export_path:
+            return jsonify({'error': 'Export path is required'}), 400
+        
+        result = model_manager.export_model(model_name, export_path)
+        
+        if result.get('success'):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 500
+    
+    except Exception as e:
+        return jsonify({'error': f'Error exporting model: {str(e)}'}), 500
+
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
     if 'file' not in request.files:

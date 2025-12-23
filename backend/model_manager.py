@@ -227,4 +227,97 @@ class ModelManager:
             "success": False,
             "error": f"Model {model_name} not found in index"
         }
+    
+    def delete_model(self, model_name):
+        """
+        Delete a model completely (from index and filesystem if fine-tuned)
+        
+        Args:
+            model_name: Model identifier
+            
+        Returns:
+            dict with deletion status
+        """
+        try:
+            # Check if it's a fine-tuned model
+            fine_tuned_path = f"./qlora_models/{model_name}"
+            if os.path.exists(fine_tuned_path):
+                # Delete the fine-tuned model directory
+                import shutil
+                shutil.rmtree(fine_tuned_path)
+                # Remove from index if present
+                if model_name in self.models_index:
+                    del self.models_index[model_name]
+                    self._save_models_index()
+                return {
+                    "success": True,
+                    "message": f"Fine-tuned model {model_name} deleted successfully"
+                }
+            
+            # For Hugging Face models, just remove from index
+            # (actual model files are in HF cache, we don't delete those)
+            if model_name in self.models_index:
+                del self.models_index[model_name]
+                self._save_models_index()
+                return {
+                    "success": True,
+                    "message": f"Model {model_name} removed from index (Hugging Face cache not deleted)"
+                }
+            
+            return {
+                "success": False,
+                "error": f"Model {model_name} not found"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error deleting model: {str(e)}"
+            }
+    
+    def export_model(self, model_name, export_path):
+        """
+        Export a model to a specified path
+        
+        Args:
+            model_name: Model identifier
+            export_path: Destination path to export the model
+            
+        Returns:
+            dict with export status
+        """
+        try:
+            import shutil
+            
+            # Check if it's a fine-tuned model
+            fine_tuned_path = f"./qlora_models/{model_name}"
+            if os.path.exists(fine_tuned_path):
+                # Export fine-tuned model
+                if not os.path.exists(export_path):
+                    os.makedirs(export_path, exist_ok=True)
+                
+                # Copy entire model directory
+                destination = os.path.join(export_path, model_name)
+                if os.path.exists(destination):
+                    shutil.rmtree(destination)
+                
+                shutil.copytree(fine_tuned_path, destination)
+                
+                return {
+                    "success": True,
+                    "message": f"Fine-tuned model {model_name} exported to {destination}",
+                    "export_path": destination
+                }
+            
+            # For Hugging Face models, we need to download/copy from cache
+            # This is more complex, so we'll just provide instructions
+            return {
+                "success": False,
+                "error": f"Hugging Face models are stored in the Hugging Face cache. To export, use the Hugging Face CLI or download directly from Hugging Face Hub.",
+                "suggestion": f"Fine-tuned models can be exported. Hugging Face models should be downloaded from the Hub or use 'huggingface-cli download {model_name}'"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Error exporting model: {str(e)}"
+            }
 

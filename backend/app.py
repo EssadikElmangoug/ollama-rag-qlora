@@ -197,6 +197,11 @@ def load_model_for_inference(model_name):
         return loaded_models_cache[model_name]
     
     try:
+        # Clear GPU cache before loading to free up memory
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        
         # Use model manager to load the model
         result = model_manager.load_model(model_name, max_seq_length=2048, load_in_4bit=True)
         
@@ -211,6 +216,16 @@ def load_model_for_inference(model_name):
     except Exception as e:
         print(f"Error loading model {model_name}: {e}")
         return None
+
+def clear_model_cache():
+    """Clear cached models to free up GPU memory"""
+    import torch
+    global loaded_models_cache
+    loaded_models_cache.clear()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        torch.cuda.synchronize()
+    print("Model cache cleared")
 
 def generate_with_model(model, tokenizer, messages, max_new_tokens=512):
     """Generate response using a Hugging Face model"""
@@ -375,6 +390,9 @@ def qlora_train():
         # Check if training is already in progress
         if qlora_trainer.training_status['status'] == 'training':
             return jsonify({'error': 'Training already in progress'}), 400
+        
+        # Clear model cache before training to free up GPU memory
+        clear_model_cache()
         
         # Start training
         qlora_trainer.train_model(

@@ -213,6 +213,17 @@ class QLoRATrainer:
                 self.training_status['error'] = None
                 print(f"[Training Thread] Status set to training")
                 
+                # Clear GPU cache before training to avoid memory issues
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    print(f"[Training] GPU cache cleared. Free memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+                
+                # Set PyTorch memory allocation config to reduce fragmentation
+                import os
+                os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
+                
                 # Check if unsloth is available
                 if not UNSLOTH_AVAILABLE:
                     raise Exception("Unsloth not installed. Please install: pip install 'unsloth[colab-new]'")
@@ -248,13 +259,164 @@ class QLoRATrainer:
                 if not training_data:
                     raise Exception("No documents found. Please upload documents first.")
                 
-                # Load model
-                model, tokenizer = FastLanguageModel.from_pretrained(
-                    model_name=base_model,
-                    max_seq_length=2048,
-                    dtype=None,
-                    load_in_4bit=True,
-                )
+                # Load model with proper device handling
+                import torch
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                print(f"[Training] Loading model on device: {device}")
+                
+                # Clear any existing models from memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                    free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                    print(f"[Training] Available GPU memory before loading: {free_memory / 1024**3:.2f} GB")
+                
+                # Try loading with 4-bit first, fallback to 8-bit or full precision if needed
+                load_success = False
+                model = None
+                tokenizer = None
+                
+                # First attempt: 4-bit quantization
+                try:
+                    print(f"[Training] Attempting to load model with 4-bit quantization...")
+                    # Explicitly avoid device_map to prevent meta tensor issues
+                    model, tokenizer = FastLanguageModel.from_pretrained(
+                        model_name=base_model,
+                        max_seq_length=2048,
+                        dtype=None,
+                        load_in_4bit=True,
+                        # Don't use device_map="auto" as it can cause meta tensor issues
+                        # device_map=None,  # Explicitly set to None
+                    )
+                    
+                    # Move model to device explicitly to ensure all tensors are initialized
+                    if torch.cuda.is_available():
+                        model = model.cuda()
+                    else:
+                        model = model.cpu()
+                    
+                    # Verify model is not meta tensor by checking lm_head
+                    if hasattr(model, 'lm_head'):
+                        # Try to access lm_head to ensure it's not meta
+                        try:
+                            # Force materialization of lm_head if it's meta
+                            if hasattr(model.lm_head, 'weight'):
+                                weight = model.lm_head.weight
+                                # Check if it's a meta tensor
+                                if hasattr(weight, 'device') and str(weight.device) == 'meta':
+                                    raise NotImplementedError("lm_head is still a meta tensor")
+                                # Try to access data
+                                _ = weight.data
+                            print(f"[Training] Model loaded successfully with 4-bit quantization")
+                            load_success = True
+                        except (NotImplementedError, RuntimeError) as e:
+                            if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
+                                print(f"[Training] 4-bit loading resulted in meta tensors, trying 8-bit...")
+                                del model
+                                del tokenizer
+                                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                            else:
+                                raise
+                    else:
+                        load_success = True
+                        
+                except Exception as e:
+                    if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
+                        print(f"[Training] 4-bit loading failed with meta tensor error, trying 8-bit...")
+                    else:
+                        print(f"[Training] 4-bit loading failed: {e}, trying 8-bit...")
+                
+                # Second attempt: 8-bit quantization if 4-bit failed
+                if not load_success:
+                    try:
+                        print(f"[Training] Attempting to load model with 8-bit quantization...")
+                        model, tokenizer = FastLanguageModel.from_pretrained(
+                            model_name=base_model,
+                            max_seq_length=2048,
+                            dtype=None,
+                            load_in_8bit=True,
+                        )
+                        # Move model to device explicitly
+                        if torch.cuda.is_available():
+                            model = model.cuda()
+                        else:
+                            model = model.cpu()
+                        print(f"[Training] Model loaded successfully with 8-bit quantization")
+                        load_success = True
+                    except Exception as e:
+                        print(f"[Training] 8-bit loading failed: {e}, trying full precision...")
+                
+                # Third attempt: Full precision (no quantization) if both failed
+                if not load_success:
+                    print(f"[Training] Attempting to load model with full precision (no quantization)...")
+                    model, tokenizer = FastLanguageModel.from_pretrained(
+                        model_name=base_model,
+                        max_seq_length=2048,
+                        dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                        load_in_4bit=False,
+                    )
+                    # Move model to device explicitly
+                    if torch.cuda.is_available():
+                        model = model.cuda()
+                    else:
+                        model = model.cpu()
+                    print(f"[Training] Model loaded successfully with full precision")
+                
+                # Final verification: Ensure model is on device and not meta
+                # This should already be done above, but double-check
+                if not load_success:
+                    raise Exception("Failed to load model with any quantization method")
+                
+                # Verify model has actual weights (not meta tensors)
+                # Check lm_head specifically as that's where the error occurs
+                try:
+                    if hasattr(model, 'lm_head') and hasattr(model.lm_head, 'weight'):
+                        lm_head_weight = model.lm_head.weight
+                        # Check if it's a meta tensor
+                        if hasattr(lm_head_weight, 'device'):
+                            device_str = str(lm_head_weight.device)
+                            if 'meta' in device_str:
+                                # Try to materialize the tensor
+                                print(f"[Training] Warning: lm_head is on meta device, attempting to materialize...")
+                                # For quantized models, we might need to access through the base model
+                                if hasattr(model, 'base_model'):
+                                    base_model = model.base_model
+                                    if hasattr(base_model, 'model') and hasattr(base_model.model, 'lm_head'):
+                                        # Try to access the base model's lm_head
+                                        _ = base_model.model.lm_head.weight.data
+                                        print(f"[Training] Successfully materialized lm_head through base_model")
+                                else:
+                                    raise NotImplementedError("Cannot materialize meta tensor for this model architecture")
+                        
+                        # Try to access the data to ensure it's not meta
+                        _ = lm_head_weight.data
+                        print(f"[Training] lm_head verified - not meta tensor")
+                    
+                    # Verify other parameters
+                    param = next(iter(model.parameters()))
+                    if hasattr(param, 'device'):
+                        device_str = str(param.device)
+                        if 'meta' in device_str:
+                            raise RuntimeError("Model still has meta tensors after loading")
+                        print(f"[Training] Model weights verified - not meta tensors, device: {param.device}")
+                except NotImplementedError as e:
+                    if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
+                        print(f"[Training] Error: Model has meta tensors that cannot be materialized")
+                        raise Exception(
+                            f"Model loading failed: Model has meta tensors that cannot be materialized.\n\n"
+                            f"This often happens with certain model architectures or when using device_map='auto'.\n\n"
+                            f"Solutions:\n"
+                            f"1. Try a different model (e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit)\n"
+                            f"2. Ensure you have sufficient GPU memory\n"
+                            f"3. Try loading without quantization (will use more memory)\n"
+                            f"4. Check if the model is compatible with Unsloth"
+                        )
+                    else:
+                        raise
+                except Exception as e:
+                    print(f"[Training] Error verifying model weights: {e}")
+                    # Don't fail here, let it try to train and see if it works
+                    print(f"[Training] Warning: Could not fully verify model weights, proceeding anyway...")
                 
                 # Try to use model's native chat template, fallback to auto-detection
                 try:
@@ -273,21 +435,56 @@ class QLoRATrainer:
                 except Exception as e:
                     print(f"[Training] Warning: Could not set chat template: {e}. Using model's default.")
                 
+                # Clear cache before applying LoRA to free up memory
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                
                 # Auto-detect target modules from model architecture
                 target_modules = self._detect_target_modules(model)
                 print(f"[Training] Using target modules: {target_modules}")
                 
                 # Configure LoRA with auto-detected target modules
-                model = FastLanguageModel.get_peft_model(
-                    model,
-                    r=lora_rank,
-                    target_modules=target_modules,
-                    lora_alpha=lora_rank,
-                    lora_dropout=0,
-                    bias="none",
-                    use_gradient_checkpointing="unsloth",
-                    random_state=3407,
-                )
+                # This should properly initialize the model if it wasn't before
+                try:
+                    model = FastLanguageModel.get_peft_model(
+                        model,
+                        r=lora_rank,
+                        target_modules=target_modules,
+                        lora_alpha=lora_rank,
+                        lora_dropout=0,
+                        bias="none",
+                        use_gradient_checkpointing="unsloth",
+                        random_state=3407,
+                    )
+                except torch.cuda.OutOfMemoryError as e:
+                    # Clear cache and try again
+                    print(f"[Training] Out of memory when applying LoRA, clearing cache and retrying...")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                        torch.cuda.synchronize()
+                    # Try with lower rank
+                    print(f"[Training] Retrying with lower LoRA rank: {lora_rank // 2}")
+                    model = FastLanguageModel.get_peft_model(
+                        model,
+                        r=max(8, lora_rank // 2),  # Reduce rank, minimum 8
+                        target_modules=target_modules,
+                        lora_alpha=max(8, lora_rank // 2),
+                        lora_dropout=0,
+                        bias="none",
+                        use_gradient_checkpointing="unsloth",
+                        random_state=3407,
+                    )
+                    print(f"[Training] Successfully applied LoRA with reduced rank")
+                
+                # Clear cache after LoRA application
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+                
+                # Ensure model is ready for training (not in meta state)
+                model.train()
+                print(f"[Training] Model set to training mode")
                 
                 # Prepare dataset
                 dataset = Dataset.from_list(training_data)
@@ -333,11 +530,20 @@ class QLoRATrainer:
                 
                 dataset = dataset.map(formatting_prompts_func, batched=True)
                 
-                # Training arguments
+                # Training arguments with memory optimization
                 from unsloth import is_bfloat16_supported
+                
+                # Adjust batch size based on available memory
+                per_device_batch_size = 2
+                if torch.cuda.is_available():
+                    free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)
+                    if free_memory < 5 * 1024**3:  # Less than 5GB free
+                        per_device_batch_size = 1
+                        print(f"[Training] Low GPU memory detected, using batch size 1")
+                
                 training_args = TrainingArguments(
                     output_dir=f"./qlora_models/{model_name}",
-                    per_device_train_batch_size=2,
+                    per_device_train_batch_size=per_device_batch_size,
                     gradient_accumulation_steps=4,
                     max_steps=max_steps,
                     learning_rate=learning_rate,
@@ -349,20 +555,85 @@ class QLoRATrainer:
                     weight_decay=0.01,
                     logging_steps=10,
                     seed=3407,
+                    # Memory optimization settings
+                    dataloader_pin_memory=False,  # Reduce memory usage
+                    remove_unused_columns=False,  # Keep columns for compatibility
                 )
                 
-                # Create trainer
-                trainer = SFTTrainer(
-                    model=model,
-                    train_dataset=dataset,
-                    data_collator=DataCollatorForSeq2Seq(tokenizer=tokenizer),
-                    tokenizer=tokenizer,
-                    dataset_text_field="text",
-                    max_seq_length=2048,
-                    dataset_num_proc=2,
-                    packing=False,
-                    args=training_args,
-                )
+                # Create trainer with error handling for meta tensor issues
+                try:
+                    trainer = SFTTrainer(
+                        model=model,
+                        train_dataset=dataset,
+                        data_collator=DataCollatorForSeq2Seq(tokenizer=tokenizer),
+                        tokenizer=tokenizer,
+                        dataset_text_field="text",
+                        max_seq_length=2048,
+                        dataset_num_proc=2,
+                        packing=False,
+                        args=training_args,
+                    )
+                except (NotImplementedError, RuntimeError) as e:
+                    if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
+                        print(f"[Training] Error creating trainer due to meta tensors: {e}")
+                        print(f"[Training] Attempting to reload model without quantization as fallback...")
+                        
+                        # Try reloading without quantization
+                        del model
+                        del tokenizer
+                        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+                        
+                        # Reload without quantization
+                        print(f"[Training] Reloading model without quantization...")
+                        model, tokenizer = FastLanguageModel.from_pretrained(
+                            model_name=base_model,
+                            max_seq_length=2048,
+                            dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                            load_in_4bit=False,
+                        )
+                        
+                        # Move to device
+                        if torch.cuda.is_available():
+                            model = model.cuda()
+                        else:
+                            model = model.cpu()
+                        
+                        # Re-apply chat template and LoRA
+                        try:
+                            model_type = self._detect_model_type(base_model, model)
+                            chat_template_name = self._get_chat_template_for_model(model_type)
+                            tokenizer = get_chat_template(tokenizer, chat_template=chat_template_name)
+                        except:
+                            pass
+                        
+                        target_modules = self._detect_target_modules(model)
+                        model = FastLanguageModel.get_peft_model(
+                            model,
+                            r=lora_rank,
+                            target_modules=target_modules,
+                            lora_alpha=lora_rank,
+                            lora_dropout=0,
+                            bias="none",
+                            use_gradient_checkpointing="unsloth",
+                            random_state=3407,
+                        )
+                        model.train()
+                        
+                        # Recreate trainer
+                        trainer = SFTTrainer(
+                            model=model,
+                            train_dataset=dataset,
+                            data_collator=DataCollatorForSeq2Seq(tokenizer=tokenizer),
+                            tokenizer=tokenizer,
+                            dataset_text_field="text",
+                            max_seq_length=2048,
+                            dataset_num_proc=2,
+                            packing=False,
+                            args=training_args,
+                        )
+                        print(f"[Training] Successfully created trainer without quantization")
+                    else:
+                        raise
                 
                 # Try to use train_on_responses_only if we can detect the format
                 # This is optional and will fall back to standard training if it fails

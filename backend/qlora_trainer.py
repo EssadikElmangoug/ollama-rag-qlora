@@ -662,11 +662,22 @@ class QLoRATrainer:
                 dataset = standardize_sharegpt(dataset)
                 
                 # Format dataset with error handling
+                # When batched=True, examples is a dict where each value is a list
                 def formatting_prompts_func(examples):
-                    convos = examples["conversations"]
+                    # Get conversations list (each element is a conversation which is a list of messages)
+                    if "conversations" not in examples:
+                        raise ValueError("Dataset must have 'conversations' field after standardize_sharegpt")
+                    
+                    convos_list = examples["conversations"]  # List of conversations
                     texts = []
-                    for convo in convos:
+                    
+                    for convo in convos_list:
                         try:
+                            # convo should be a list of message dicts: [{"role": "user", "content": "..."}, ...]
+                            if not isinstance(convo, list):
+                                print(f"[Training] Warning: Conversation is not a list: {type(convo)}")
+                                convo = []
+                            
                             # Try to use chat template
                             if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template is not None:
                                 text = tokenizer.apply_chat_template(
@@ -678,28 +689,75 @@ class QLoRATrainer:
                                 # Fallback: simple formatting
                                 text = ""
                                 for msg in convo:
-                                    role = msg.get("role", "")
-                                    content = msg.get("content", "")
-                                    if role == "user":
-                                        text += f"User: {content}\n\n"
-                                    elif role == "assistant":
-                                        text += f"Assistant: {content}\n\n"
+                                    if isinstance(msg, dict):
+                                        role = msg.get("role", "")
+                                        content = msg.get("content", "")
+                                        if role == "user":
+                                            text += f"User: {content}\n\n"
+                                        elif role == "assistant":
+                                            text += f"Assistant: {content}\n\n"
                             texts.append(text)
                         except Exception as e:
                             # If chat template fails, use simple fallback
                             print(f"[Training] Warning: Chat template failed for one example: {e}. Using fallback.")
                             text = ""
-                            for msg in convo:
-                                role = msg.get("role", "")
-                                content = msg.get("content", "")
-                                if role == "user":
-                                    text += f"User: {content}\n\n"
-                                elif role == "assistant":
-                                    text += f"Assistant: {content}\n\n"
+                            if isinstance(convo, list):
+                                for msg in convo:
+                                    if isinstance(msg, dict):
+                                        role = msg.get("role", "")
+                                        content = msg.get("content", "")
+                                        if role == "user":
+                                            text += f"User: {content}\n\n"
+                                        elif role == "assistant":
+                                            text += f"Assistant: {content}\n\n"
                             texts.append(text)
+                    
                     return {"text": texts}
                 
+                # Format the dataset
+                print(f"[Training] Dataset columns before formatting: {dataset.column_names}")
                 dataset = dataset.map(formatting_prompts_func, batched=True)
+                
+                # After mapping, ensure dataset only has 'text' column
+                # Get current column names after mapping
+                current_columns = dataset.column_names
+                print(f"[Training] Dataset columns after mapping: {current_columns}")
+                
+                # Always recreate dataset with only 'text' column to ensure clean format
+                # This is the safest approach to avoid any residual fields
+                try:
+                    texts = [item["text"] for item in dataset]
+                    dataset = Dataset.from_dict({"text": texts})
+                    print(f"[Training] Recreated dataset with only 'text' column")
+                except Exception as e:
+                    print(f"[Training] Error recreating dataset: {e}")
+                    # Fallback: try to remove columns
+                    columns_to_remove = [col for col in current_columns if col != "text"]
+                    if columns_to_remove:
+                        print(f"[Training] Attempting to remove columns: {columns_to_remove}")
+                        dataset = dataset.remove_columns(columns_to_remove)
+                
+                # Final verification
+                final_columns = dataset.column_names
+                print(f"[Training] Final dataset columns: {final_columns}")
+                if "text" not in final_columns:
+                    raise Exception("Dataset must have 'text' column after formatting")
+                
+                if len(final_columns) > 1:
+                    print(f"[Training] WARNING: Dataset has extra columns: {final_columns}")
+                    # Force cleanup
+                    texts = [item["text"] for item in dataset]
+                    dataset = Dataset.from_dict({"text": texts})
+                    print(f"[Training] Force cleaned dataset - now only has: {dataset.column_names}")
+                
+                # Verify sample format
+                if len(dataset) > 0:
+                    sample = dataset[0]
+                    sample_keys = list(sample.keys())
+                    print(f"[Training] Sample entry keys: {sample_keys}")
+                    if "text" in sample:
+                        text_preview = sample["text"][:100] if len(sample["text"]) > 100 else sample["text"]
+                        print(f"[Training] Sample text preview: {text_preview}...")
                 
                 # Training arguments with memory optimization
                 from unsloth import is_bfloat16_supported
@@ -728,7 +786,7 @@ class QLoRATrainer:
                     seed=3407,
                     # Memory optimization settings
                     dataloader_pin_memory=False,  # Reduce memory usage
-                    remove_unused_columns=False,  # Keep columns for compatibility
+                    remove_unused_columns=True,  # Remove columns not used by the model
                 )
                 
                 # Create trainer with error handling for meta tensor issues
@@ -762,6 +820,19 @@ class QLoRATrainer:
                     print(f"[Training] Final psutil injection before SFTTrainer creation")
                 except Exception as e:
                     print(f"[Training] Warning: Could not inject psutil before SFTTrainer: {e}")
+                
+                # Final dataset verification before creating trainer
+                print(f"[Training] Final dataset check before trainer creation:")
+                print(f"  - Columns: {dataset.column_names}")
+                print(f"  - Dataset size: {len(dataset)}")
+                if len(dataset) > 0:
+                    sample = dataset[0]
+                    print(f"  - Sample keys: {list(sample.keys())}")
+                    if "conversations" in sample:
+                        print(f"[Training] CRITICAL: Dataset still has 'conversations' field! Forcing cleanup...")
+                        texts = [item["text"] for item in dataset]
+                        dataset = Dataset.from_dict({"text": texts})
+                        print(f"[Training] Dataset cleaned. New columns: {dataset.column_names}")
                 
                 try:
                     trainer = SFTTrainer(

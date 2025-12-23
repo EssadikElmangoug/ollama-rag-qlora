@@ -9,6 +9,17 @@ import subprocess
 from datetime import datetime
 from rag_processor import RAGProcessor
 
+# Import psutil BEFORE unsloth to ensure it's available for Unsloth's compiled cache
+try:
+    import psutil
+    # Make psutil available globally for Unsloth's compiled cache
+    import sys
+    if 'psutil' not in sys.modules:
+        sys.modules['psutil'] = psutil
+except ImportError:
+    print("[Warning] psutil not installed. Please install with: pip install psutil>=5.9.0")
+    psutil = None
+
 # Import unsloth at module level (before transformers/peft) to ensure optimizations are applied
 # This also triggers cache creation before Flask's reloader starts watching
 try:
@@ -297,11 +308,70 @@ class QLoRATrainer:
                 except ImportError:
                     raise Exception("accelerate is required. Install with: pip install accelerate")
                 
+                # Ensure psutil is available (required by Unsloth's compiled cache)
+                try:
+                    import psutil
+                    # Make sure it's accessible
+                    _ = psutil.cpu_count()
+                    
+                    # CRITICAL: Inject psutil into unsloth's compiled cache namespace
+                    # The unsloth compiled cache file uses psutil but doesn't import it
+                    import sys
+                    import builtins
+                    
+                    # Inject into builtins so it's available globally (most reliable method)
+                    builtins.psutil = psutil
+                    print(f"[Training] Injected psutil into builtins namespace")
+                    
+                    # Also inject into sys.modules to ensure it's available
+                    sys.modules['psutil'] = psutil
+                    
+                    # Try to inject into all unsloth-related modules that might be loaded
+                    try:
+                        for module_name in list(sys.modules.keys()):
+                            if 'unsloth' in module_name.lower():
+                                module = sys.modules[module_name]
+                                if not hasattr(module, 'psutil'):
+                                    module.psutil = psutil
+                                    # Also inject into module's __dict__ for compiled modules
+                                    if hasattr(module, '__dict__'):
+                                        module.__dict__['psutil'] = psutil
+                        print(f"[Training] Injected psutil into unsloth modules")
+                    except Exception as e:
+                        print(f"[Training] Warning: Could not inject psutil into unsloth modules: {e}")
+                        
+                except (ImportError, NameError):
+                    raise Exception(
+                        "psutil is required but not available. "
+                        "Please install it with: pip install psutil>=5.9.0\n"
+                        "If already installed, try: pip install --upgrade --force-reinstall psutil"
+                    )
+                
                 # Import unsloth components (already imported at module level, but import specific classes here)
                 from unsloth import FastLanguageModel
                 from unsloth.chat_templates import get_chat_template, standardize_sharegpt, train_on_responses_only
                 from transformers import TrainingArguments
+                
+                # Import SFTTrainer - this will trigger loading of unsloth's compiled cache
+                # We need to ensure psutil is available before this import
                 from trl import SFTTrainer
+                
+                # After importing SFTTrainer, patch any newly loaded unsloth compiled cache modules
+                try:
+                    import psutil as psutil_module
+                    import sys
+                    # Re-inject into any modules that were just loaded
+                    for module_name in list(sys.modules.keys()):
+                        if 'unsloth' in module_name.lower():
+                            module = sys.modules[module_name]
+                            if not hasattr(module, 'psutil') or module.psutil is not psutil_module:
+                                module.psutil = psutil_module
+                                if hasattr(module, '__dict__'):
+                                    module.__dict__['psutil'] = psutil_module
+                    print(f"[Training] Re-patched psutil after SFTTrainer import")
+                except Exception as e:
+                    print(f"[Training] Warning: Could not re-patch unsloth after import: {e}")
+                
                 from transformers import DataCollatorForSeq2Seq
                 from datasets import Dataset
                 
@@ -662,6 +732,37 @@ class QLoRATrainer:
                 )
                 
                 # Create trainer with error handling for meta tensor issues
+                # CRITICAL: Ensure psutil is available in all namespaces before creating SFTTrainer
+                # The unsloth compiled cache uses psutil but doesn't import it
+                try:
+                    import psutil
+                    import sys
+                    import builtins
+                    import importlib
+                    
+                    # Ensure psutil is in builtins (most reliable)
+                    builtins.psutil = psutil
+                    
+                    # Inject into all currently loaded unsloth modules
+                    for module_name, module in list(sys.modules.items()):
+                        if 'unsloth' in module_name.lower():
+                            # Inject into module globals
+                            if hasattr(module, '__dict__'):
+                                module.__dict__['psutil'] = psutil
+                            # Also set as attribute
+                            if not hasattr(module, 'psutil'):
+                                setattr(module, 'psutil', psutil)
+                            # Patch __builtins__ if it exists
+                            if hasattr(module, '__builtins__'):
+                                if isinstance(module.__builtins__, dict):
+                                    module.__builtins__['psutil'] = psutil
+                                elif hasattr(module.__builtins__, '__dict__'):
+                                    module.__builtins__.__dict__['psutil'] = psutil
+                    
+                    print(f"[Training] Final psutil injection before SFTTrainer creation")
+                except Exception as e:
+                    print(f"[Training] Warning: Could not inject psutil before SFTTrainer: {e}")
+                
                 try:
                     trainer = SFTTrainer(
                         model=model,
@@ -674,6 +775,46 @@ class QLoRATrainer:
                         packing=False,
                         args=training_args,
                     )
+                except NameError as e:
+                    # Catch NameError for psutil and retry with aggressive patching
+                    if 'psutil' in str(e).lower():
+                        print(f"[Training] NameError for psutil detected, applying aggressive patch and retrying...")
+                        import psutil
+                        import sys
+                        import builtins
+                        
+                        # Aggressive injection into all possible namespaces
+                        builtins.psutil = psutil
+                        sys.modules['psutil'] = psutil
+                        
+                        # Find and patch the unsloth compiled cache module
+                        for module_name, module in list(sys.modules.items()):
+                            if 'unsloth' in module_name.lower() or 'sft' in module_name.lower():
+                                try:
+                                    if hasattr(module, '__dict__'):
+                                        module.__dict__['psutil'] = psutil
+                                    setattr(module, 'psutil', psutil)
+                                    # Try to patch globals if it's a function/class
+                                    if hasattr(module, '__globals__'):
+                                        module.__globals__['psutil'] = psutil
+                                except:
+                                    pass
+                        
+                        # Retry creating the trainer
+                        trainer = SFTTrainer(
+                            model=model,
+                            train_dataset=dataset,
+                            data_collator=DataCollatorForSeq2Seq(tokenizer=tokenizer),
+                            tokenizer=tokenizer,
+                            dataset_text_field="text",
+                            max_seq_length=2048,
+                            dataset_num_proc=2,
+                            packing=False,
+                            args=training_args,
+                        )
+                        print(f"[Training] Successfully created trainer after psutil patch")
+                    else:
+                        raise
                 except (NotImplementedError, RuntimeError) as e:
                     if "meta tensor" in str(e).lower() or "no data" in str(e).lower():
                         print(f"[Training] Error creating trainer due to meta tensors: {e}")

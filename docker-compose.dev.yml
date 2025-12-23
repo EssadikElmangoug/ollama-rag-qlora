@@ -1,5 +1,3 @@
-version: '3.8'
-
 # Development Docker Compose with hot reload
 services:
   # Backend Flask API (Development)

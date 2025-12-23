@@ -186,18 +186,19 @@ const QLoRAPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Base Model
+                  Base Model (Hugging Face Model Tag)
                 </label>
-                <select
+                <input
+                  type="text"
                   value={selectedBaseModel}
                   onChange={(e) => setSelectedBaseModel(e.target.value)}
+                  placeholder="e.g., unsloth/Nemotron-3-Nano-30B-A3B-GGUF"
                   className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                   disabled={trainingStatus === 'training'}
-                >
-                  <option value="unsloth/Llama-3.2-3B-Instruct-bnb-4bit">Llama 3.2 3B (4-bit)</option>
-                  <option value="unsloth/Llama-3.1-8B-Instruct-bnb-4bit">Llama 3.1 8B (4-bit)</option>
-                  <option value="unsloth/Mistral-7B-Instruct-v0.3-bnb-4bit">Mistral 7B (4-bit)</option>
-                </select>
+                />
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  Paste any Unsloth-compatible model tag from Hugging Face (e.g., unsloth/Nemotron-3-Nano-30B-A3B-GGUF)
+                </p>
               </div>
 
               <div>

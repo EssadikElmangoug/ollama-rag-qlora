@@ -9,6 +9,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 
 # Install dependencies
+# npm ci is faster and more reliable when package-lock.json is in sync
 RUN npm ci
 
 # Rebuild the source code only when needed

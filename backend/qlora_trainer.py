@@ -112,6 +112,55 @@ class QLoRATrainer:
         }
         return template_map.get(model_type, 'llama-3.1')
     
+    def _detect_target_modules(self, model):
+        """Auto-detect target modules from model architecture"""
+        # Common target modules for different architectures
+        common_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+        mlp_modules = ["gate_proj", "up_proj", "down_proj"]
+        
+        # Get model's module names
+        model_modules = set()
+        try:
+            for name, module in model.named_modules():
+                model_modules.add(name.split('.')[-1])  # Get the last part of the module name
+        except:
+            pass
+        
+        # Build target modules list based on what's available
+        target_modules = []
+        
+        # Add attention modules if available
+        for module in common_modules:
+            if module in model_modules:
+                target_modules.append(module)
+        
+        # Add MLP modules if available
+        for module in mlp_modules:
+            if module in model_modules:
+                target_modules.append(module)
+        
+        # If we found some modules, use them
+        if target_modules:
+            return target_modules
+        
+        # Fallback: try common alternatives
+        alternative_modules = [
+            "query", "key", "value", "dense",  # BERT-style
+            "qkv", "out_proj",  # Some architectures
+            "attention", "mlp",  # Generic
+        ]
+        
+        for module in alternative_modules:
+            if module in model_modules:
+                target_modules.append(module)
+        
+        # Final fallback: use default if nothing found
+        if not target_modules:
+            print(f"[Training] Warning: Could not auto-detect target modules, using defaults")
+            return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+        
+        return target_modules
+    
     def _get_train_on_responses_parts(self, model_type):
         """Get instruction_part and response_part for train_on_responses_only based on model type"""
         # Llama models (Llama 3.1+)
@@ -207,26 +256,32 @@ class QLoRATrainer:
                     load_in_4bit=True,
                 )
                 
-                # Auto-detect model type from base model name (before LoRA configuration)
-                model_type = self._detect_model_type(base_model, model)
-                chat_template_name = self._get_chat_template_for_model(model_type)
+                # Try to use model's native chat template, fallback to auto-detection
+                try:
+                    # Check if tokenizer has a chat template
+                    if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template is not None:
+                        print(f"[Training] Using model's native chat template")
+                    else:
+                        # Try to auto-detect and set chat template
+                        model_type = self._detect_model_type(base_model, model)
+                        chat_template_name = self._get_chat_template_for_model(model_type)
+                        print(f"[Training] No native template found, detected model type: {model_type}, using chat template: {chat_template_name}")
+                        tokenizer = get_chat_template(
+                            tokenizer,
+                            chat_template=chat_template_name,
+                        )
+                except Exception as e:
+                    print(f"[Training] Warning: Could not set chat template: {e}. Using model's default.")
                 
-                print(f"[Training] Detected model type: {model_type}, using chat template: {chat_template_name}")
+                # Auto-detect target modules from model architecture
+                target_modules = self._detect_target_modules(model)
+                print(f"[Training] Using target modules: {target_modules}")
                 
-                # Setup chat template first (before LoRA configuration)
-                tokenizer = get_chat_template(
-                    tokenizer,
-                    chat_template=chat_template_name,
-                )
-                
-                # Configure LoRA
+                # Configure LoRA with auto-detected target modules
                 model = FastLanguageModel.get_peft_model(
                     model,
                     r=lora_rank,
-                    target_modules=[
-                        "q_proj", "k_proj", "v_proj", "o_proj",
-                        "gate_proj", "up_proj", "down_proj",
-                    ],
+                    target_modules=target_modules,
                     lora_alpha=lora_rank,
                     lora_dropout=0,
                     bias="none",
@@ -238,17 +293,42 @@ class QLoRATrainer:
                 dataset = Dataset.from_list(training_data)
                 dataset = standardize_sharegpt(dataset)
                 
-                # Format dataset
+                # Format dataset with error handling
                 def formatting_prompts_func(examples):
                     convos = examples["conversations"]
-                    texts = [
-                        tokenizer.apply_chat_template(
-                            convo,
-                            tokenize=False,
-                            add_generation_prompt=False
-                        )
-                        for convo in convos
-                    ]
+                    texts = []
+                    for convo in convos:
+                        try:
+                            # Try to use chat template
+                            if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template is not None:
+                                text = tokenizer.apply_chat_template(
+                                    convo,
+                                    tokenize=False,
+                                    add_generation_prompt=False
+                                )
+                            else:
+                                # Fallback: simple formatting
+                                text = ""
+                                for msg in convo:
+                                    role = msg.get("role", "")
+                                    content = msg.get("content", "")
+                                    if role == "user":
+                                        text += f"User: {content}\n\n"
+                                    elif role == "assistant":
+                                        text += f"Assistant: {content}\n\n"
+                            texts.append(text)
+                        except Exception as e:
+                            # If chat template fails, use simple fallback
+                            print(f"[Training] Warning: Chat template failed for one example: {e}. Using fallback.")
+                            text = ""
+                            for msg in convo:
+                                role = msg.get("role", "")
+                                content = msg.get("content", "")
+                                if role == "user":
+                                    text += f"User: {content}\n\n"
+                                elif role == "assistant":
+                                    text += f"Assistant: {content}\n\n"
+                            texts.append(text)
                     return {"text": texts}
                 
                 dataset = dataset.map(formatting_prompts_func, batched=True)
@@ -284,18 +364,23 @@ class QLoRATrainer:
                     args=training_args,
                 )
                 
-                # Get instruction and response parts based on model type
-                instruction_part, response_part = self._get_train_on_responses_parts(model_type)
-                
-                # Train on responses only (if parts are available)
-                if instruction_part and response_part:
-                    trainer = train_on_responses_only(
-                        trainer,
-                        instruction_part=instruction_part,
-                        response_part=response_part,
-                    )
-                else:
-                    print(f"[Training] Skipping train_on_responses_only for {model_type} (using default training)")
+                # Try to use train_on_responses_only if we can detect the format
+                # This is optional and will fall back to standard training if it fails
+                try:
+                    model_type = self._detect_model_type(base_model, model)
+                    instruction_part, response_part = self._get_train_on_responses_parts(model_type)
+                    
+                    if instruction_part and response_part:
+                        print(f"[Training] Using train_on_responses_only with detected format for {model_type}")
+                        trainer = train_on_responses_only(
+                            trainer,
+                            instruction_part=instruction_part,
+                            response_part=response_part,
+                        )
+                    else:
+                        print(f"[Training] Skipping train_on_responses_only (using standard training)")
+                except Exception as e:
+                    print(f"[Training] Warning: Could not apply train_on_responses_only: {e}. Using standard training.")
                 
                 # Custom callback to update progress
                 from transformers import TrainerCallback
@@ -338,8 +423,29 @@ class QLoRATrainer:
                 
                 trainer.add_callback(ProgressCallback(self, max_steps))
                 
-                # Train
-                trainer.train()
+                # Train with better error handling
+                try:
+                    trainer.train()
+                except Exception as train_error:
+                    # Check if it's a train_on_responses_only error
+                    error_str = str(train_error).lower()
+                    if "all labels" in error_str and "-100" in error_str:
+                        print(f"[Training] Error with train_on_responses_only, retrying without it...")
+                        # Recreate trainer without train_on_responses_only
+                        trainer = SFTTrainer(
+                            model=model,
+                            train_dataset=dataset,
+                            data_collator=DataCollatorForSeq2Seq(tokenizer=tokenizer),
+                            tokenizer=tokenizer,
+                            dataset_text_field="text",
+                            max_seq_length=2048,
+                            dataset_num_proc=2,
+                            packing=False,
+                            args=training_args,
+                        )
+                        trainer.train()
+                    else:
+                        raise train_error
                 
                 # Save model (LoRA adapters only)
                 model.save_pretrained(f"./qlora_models/{model_name}")

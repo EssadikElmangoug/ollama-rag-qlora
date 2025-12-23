@@ -2,15 +2,11 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import os
 import subprocess
-import requests
 from werkzeug.utils import secure_filename
 from datetime import datetime
 from rag_processor import RAGProcessor
-from langchain_community.llms import Ollama
-from langchain_core.prompts import PromptTemplate
-from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
 from qlora_trainer import QLoRATrainer
+from model_manager import ModelManager
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})  # Enable CORS for all API routes from any origin
@@ -21,17 +17,16 @@ rag_processor = RAGProcessor()
 # Initialize QLoRA Trainer
 qlora_trainer = QLoRATrainer()
 
-# Cache for loaded fine-tuned models (to avoid reloading on every request)
+# Initialize Model Manager
+model_manager = ModelManager()
+
+# Cache for loaded models (to avoid reloading on every request)
 loaded_models_cache = {}
 
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 ALLOWED_EXTENSIONS = {'txt', 'md', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'ppt', 'pptx'}
 MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-
-# Ollama configuration - can be set via environment variable
-# Default to localhost, but can be changed to Docker URL (e.g., http://localhost:11434)
-OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
@@ -41,25 +36,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def get_ollama_models():
-    """Get list of models from Ollama API"""
-    try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
-        if response.status_code == 200:
-            data = response.json()
-            models = []
-            for model in data.get('models', []):
-                models.append({
-                    'name': model.get('name', ''),
-                    'size': model.get('size', 0),
-                    'type': 'ollama'
-                })
-            return models
-        return []
-    except Exception as e:
-        print(f"Error fetching Ollama models from {OLLAMA_BASE_URL}: {e}")
-        return []
 
 @app.route('/')
 def home():
@@ -77,44 +53,48 @@ def health():
 
 @app.route('/api/models', methods=['GET'])
 def list_models():
-    """Get list of available Ollama models (including fine-tuned)"""
+    """Get list of available Hugging Face models (installed and fine-tuned)"""
     try:
-        models = []
-        
-        # Get models from Ollama API
-        try:
-            ollama_models = get_ollama_models()
-            models.extend(ollama_models)
-        except Exception as e:
-            print(f"Warning: Could not fetch Ollama models from {OLLAMA_BASE_URL}: {e}")
-        
-        # Also include fine-tuned models (both Ollama-converted and direct)
-        try:
-            fine_tuned = qlora_trainer.list_trained_models()
-            for model in fine_tuned:
-                # Check if already in list (might be converted to Ollama)
-                if not any(m.get('name') == model['name'] for m in models):
-                    models.append({
-                        'name': model['name'],
-                        'size': None,
-                        'type': 'fine-tuned',
-                        'ollama_ready': model.get('ollama_ready', False)
-                    })
-        except Exception as e:
-            print(f"Warning: Could not list fine-tuned models: {e}")
+        models = model_manager.list_installed_models()
         
         return jsonify({
             'models': models,
-            'count': len(models),
-            'ollama_url': OLLAMA_BASE_URL
+            'count': len(models)
         }), 200
     
     except Exception as e:
         return jsonify({
             'error': f'Error listing models: {str(e)}',
             'models': [],
-            'ollama_url': OLLAMA_BASE_URL
+            'count': 0
         }), 500
+
+@app.route('/api/models/install', methods=['POST'])
+def install_model():
+    """Install a model from Hugging Face"""
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name', '').strip()
+        load_in_4bit = data.get('load_in_4bit', True)
+        
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
+        
+        # Check if it's a GGUF model
+        if 'gguf' in model_name.lower():
+            return jsonify({
+                'error': 'GGUF models cannot be used for training or inference in this system. Please use models compatible with transformers (e.g., models with "-bnb-4bit" suffix).'
+            }), 400
+        
+        result = model_manager.install_model(model_name, load_in_4bit)
+        
+        if result.get('success'):
+            return jsonify(result), 200
+        else:
+            return jsonify(result), 500
+    
+    except Exception as e:
+        return jsonify({'error': f'Error installing model: {str(e)}'}), 500
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -210,41 +190,30 @@ def delete_file(filename):
     except Exception as e:
         return jsonify({'error': f'Error deleting file: {str(e)}'}), 500
 
-def load_fine_tuned_model(model_name):
-    """Load a fine-tuned model directly using Unsloth/transformers"""
+def load_model_for_inference(model_name):
+    """Load a model (Hugging Face or fine-tuned) for inference"""
     # Check if model is already loaded
     if model_name in loaded_models_cache:
         return loaded_models_cache[model_name]
     
-    # Check if this is a fine-tuned model
-    model_path = f"./qlora_models/{model_name}"
-    if not os.path.exists(model_path):
-        return None
-    
     try:
-        from unsloth import FastLanguageModel
+        # Use model manager to load the model
+        result = model_manager.load_model(model_name, max_seq_length=2048, load_in_4bit=True)
         
-        # Load the fine-tuned model with LoRA adapters
-        model, tokenizer = FastLanguageModel.from_pretrained(
-            model_name=model_path,
-            max_seq_length=2048,
-            dtype=None,
-            load_in_4bit=True,
-        )
-        
-        # Enable fast inference mode
-        FastLanguageModel.for_inference(model)
-        
-        # Cache the loaded model
-        loaded_models_cache[model_name] = (model, tokenizer)
-        print(f"Loaded fine-tuned model: {model_name}")
-        return (model, tokenizer)
+        if result:
+            model, tokenizer = result
+            # Cache the loaded model
+            loaded_models_cache[model_name] = (model, tokenizer)
+            print(f"Loaded model: {model_name}")
+            return (model, tokenizer)
+        else:
+            return None
     except Exception as e:
-        print(f"Error loading fine-tuned model {model_name}: {e}")
+        print(f"Error loading model {model_name}: {e}")
         return None
 
-def generate_with_fine_tuned_model(model, tokenizer, messages, max_new_tokens=512):
-    """Generate response using a fine-tuned model directly"""
+def generate_with_model(model, tokenizer, messages, max_new_tokens=512):
+    """Generate response using a Hugging Face model"""
     try:
         # Format messages for chat template
         formatted_messages = []
@@ -254,13 +223,26 @@ def generate_with_fine_tuned_model(model, tokenizer, messages, max_new_tokens=51
             elif msg['role'] == 'assistant':
                 formatted_messages.append({"role": "assistant", "content": msg['content']})
         
-        # Apply chat template
-        inputs = tokenizer.apply_chat_template(
-            formatted_messages,
-            tokenize=True,
-            add_generation_prompt=True,
-            return_tensors="pt",
-        )
+        # Check if tokenizer has chat template
+        if hasattr(tokenizer, 'chat_template') and tokenizer.chat_template is not None:
+            # Apply chat template
+            inputs = tokenizer.apply_chat_template(
+                formatted_messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                return_tensors="pt",
+            )
+        else:
+            # Fallback: simple formatting
+            text = ""
+            for msg in formatted_messages:
+                if msg['role'] == 'user':
+                    text += f"User: {msg['content']}\n\n"
+                elif msg['role'] == 'assistant':
+                    text += f"Assistant: {msg['content']}\n\n"
+            text += "Assistant: "
+            inputs = tokenizer(text, return_tensors="pt")
+            inputs = inputs['input_ids']
         
         # Move to device (GPU if available, else CPU)
         import torch
@@ -280,54 +262,75 @@ def generate_with_fine_tuned_model(model, tokenizer, messages, max_new_tokens=51
         )
         
         # Decode response (skip the prompt)
-        response = tokenizer.decode(outputs[0][inputs.shape[1]:], skip_special_tokens=True)
+        if isinstance(inputs, torch.Tensor):
+            prompt_length = inputs.shape[1]
+        else:
+            prompt_length = len(inputs[0]) if isinstance(inputs, list) else inputs.shape[1]
+        
+        response = tokenizer.decode(outputs[0][prompt_length:], skip_special_tokens=True)
         return response.strip()
     except Exception as e:
-        raise Exception(f"Error generating with fine-tuned model: {str(e)}")
+        raise Exception(f"Error generating with model: {str(e)}")
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """Chat endpoint with RAG retrieval"""
+    """Chat endpoint with RAG retrieval using Hugging Face models"""
     try:
         data = request.get_json()
         query = data.get('message', '').strip()
-        model_name = data.get('model', 'qwen3:14b')  # Default model or from request
+        model_name = data.get('model', 'unsloth/Llama-3.2-3B-Instruct-bnb-4bit')  # Default Hugging Face model
         conversation_history = data.get('conversation_history', [])  # Full conversation history
         
         if not query:
             return jsonify({'error': 'No message provided'}), 400
         
-        # Check if this is a fine-tuned model (starts with qlora_ or exists in qlora_models)
-        fine_tuned_model = load_fine_tuned_model(model_name)
+        if not model_name:
+            return jsonify({'error': 'Model name is required'}), 400
         
-        if fine_tuned_model:
-            # Use fine-tuned model directly
-            model, tokenizer = fine_tuned_model
+        # Load model (Hugging Face or fine-tuned)
+        model_result = load_model_for_inference(model_name)
+        
+        if not model_result:
+            # Try to install the model if it's not found
+            install_result = model_manager.install_model(model_name, load_in_4bit=True)
+            if not install_result.get('success'):
+                return jsonify({
+                    'error': f'Model {model_name} not found and could not be installed. Please install it first or use an installed model.',
+                    'suggestion': 'Use /api/models/install endpoint to install models'
+                }), 404
             
-            # Prepare messages with current query
-            messages = conversation_history + [{'role': 'user', 'content': query}]
+            # Try loading again after installation
+            model_result = load_model_for_inference(model_name)
+            if not model_result:
+                return jsonify({'error': f'Failed to load model {model_name} after installation'}), 500
+        
+        model, tokenizer = model_result
+        
+        # Prepare messages with current query
+        messages = conversation_history + [{'role': 'user', 'content': query}]
+        
+        # Check if we have documents for RAG
+        has_docs = rag_processor.has_documents()
+        
+        sources = []
+        if has_docs:
+            # Retrieve relevant documents
+            results_with_scores = rag_processor.search_similar_with_scores(query, k=4)
+            MAX_DISTANCE_THRESHOLD = 1.2
             
-            # Check if we have documents for RAG
-            has_docs = rag_processor.has_documents()
+            relevant_docs = []
+            min_distance = float('inf')
             
-            if has_docs:
-                # Retrieve relevant documents
-                results_with_scores = rag_processor.search_similar_with_scores(query, k=4)
-                MAX_DISTANCE_THRESHOLD = 1.2
-                
-                relevant_docs = []
-                min_distance = float('inf')
-                
-                for doc, distance in results_with_scores:
-                    if distance < min_distance:
-                        min_distance = distance
-                    if distance < MAX_DISTANCE_THRESHOLD:
-                        relevant_docs.append(doc)
-                
-                # Add context if relevant documents found
-                if relevant_docs and min_distance < MAX_DISTANCE_THRESHOLD:
-                    context = "\n\n".join([doc.page_content for doc in relevant_docs])
-                    system_message = f"""You are a helpful AI assistant. Answer questions using the provided context from uploaded documents when relevant.
+            for doc, distance in results_with_scores:
+                if distance < min_distance:
+                    min_distance = distance
+                if distance < MAX_DISTANCE_THRESHOLD:
+                    relevant_docs.append(doc)
+            
+            # Add context if relevant documents found
+            if relevant_docs and min_distance < MAX_DISTANCE_THRESHOLD:
+                context = "\n\n".join([doc.page_content for doc in relevant_docs])
+                system_message = f"""You are a helpful AI assistant. Answer questions using the provided context from uploaded documents when relevant.
 
 If the question is related to the provided context, use that context to give a detailed and accurate answer. Reference the documents when relevant.
 
@@ -335,138 +338,21 @@ If the question is NOT related to the provided context (e.g., general conversati
 
 Context from uploaded documents:
 {context}"""
-                    
-                    # Prepend system message
-                    messages = [{'role': 'user', 'content': system_message}] + messages
-                    sources = list(set([doc.metadata.get('source_file', 'Unknown') for doc in relevant_docs]))
-                else:
-                    sources = []
-            else:
-                sources = []
-            
-            # Generate response
-            response_text = generate_with_fine_tuned_model(model, tokenizer, messages)
-            
-            return jsonify({
-                'response': response_text,
-                'sources': sources,
-                'model_type': 'fine-tuned'
-            }), 200
-        
-        # Fall back to Ollama for regular models
-        # Check if Ollama is available
-        try:
-            llm = Ollama(model=model_name, base_url=OLLAMA_BASE_URL)
-        except Exception as e:
-            # Fallback to simple retrieval if Ollama is not available
-            results = rag_processor.search_similar(query, k=4)
-            context = "\n\n".join([doc.page_content for doc in results])
-            
-            return jsonify({
-                'response': f"Based on your documents:\n\n{context[:500]}...",
-                'sources': [doc.metadata.get('source_file', 'Unknown') for doc in results],
-                'note': 'Ollama not available, showing retrieved context only'
-            }), 200
-        
-        # Check if we have documents in the vector store
-        has_docs = rag_processor.has_documents()
-        
-        if not has_docs:
-            # No documents uploaded, use LLM normally
-            response = llm.invoke(query)
-            return jsonify({
-                'response': response,
-                'sources': []
-            }), 200
-        
-        # Retrieve relevant documents with similarity scores
-        results_with_scores = rag_processor.search_similar_with_scores(query, k=4)
-        
-        # FAISS uses L2 distance (lower = more similar)
-        # Set a distance threshold - if all results are too far, query is not related
-        # Typical good matches have distance < 1.0, adjust based on your embedding model
-        MAX_DISTANCE_THRESHOLD = 1.2
-        
-        # Check if we have any reasonably relevant documents
-        relevant_docs = []
-        min_distance = float('inf')
-        
-        for doc, distance in results_with_scores:
-            if distance < min_distance:
-                min_distance = distance
-            if distance < MAX_DISTANCE_THRESHOLD:
-                relevant_docs.append(doc)
-        
-        # If no relevant documents found or all are too distant, use LLM normally with conversation history
-        if not relevant_docs or min_distance > MAX_DISTANCE_THRESHOLD:
-            if conversation_history:
-                # Use conversation history with ChatOllama for proper context
-                from langchain_community.chat_models import ChatOllama
-                from langchain_core.messages import HumanMessage, AIMessage
                 
-                chat_llm = ChatOllama(model=model_name, base_url=OLLAMA_BASE_URL)
-                
-                # Convert conversation history to LangChain messages
-                langchain_messages = []
-                for msg in conversation_history:
-                    if msg['role'] == 'user':
-                        langchain_messages.append(HumanMessage(content=msg['content']))
-                    elif msg['role'] == 'assistant':
-                        langchain_messages.append(AIMessage(content=msg['content']))
-                
-                # Get response with full conversation context
-                response = chat_llm.invoke(langchain_messages)
-                response_text = response.content if hasattr(response, 'content') else str(response)
-            else:
-                # Fallback to simple invoke if no history
-                response_text = llm.invoke(query)
-            
-            return jsonify({
-                'response': response_text,
-                'sources': []
-            }), 200
+                # Prepend system message
+                messages = [{'role': 'user', 'content': system_message}] + messages
+                sources = list(set([doc.metadata.get('source_file', 'Unknown') for doc in relevant_docs]))
         
-        # We have relevant documents, use RAG
-        # Extract sources
-        sources = list(set([
-            doc.metadata.get('source_file', 'Unknown')
-            for doc in relevant_docs
-        ]))
+        # Generate response
+        response_text = generate_with_model(model, tokenizer, messages)
         
-        # Format context from retrieved documents
-        context = "\n\n".join([doc.page_content for doc in relevant_docs])
-        
-        # Use ChatOllama for conversation history support
-        from langchain_community.chat_models import ChatOllama
-        from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
-        
-        chat_llm = ChatOllama(model=model_name)
-        
-        # Create system message with context
-        system_message = SystemMessage(content=f"""You are a helpful AI assistant. Answer questions using the provided context from uploaded documents when relevant.
-
-If the question is related to the provided context, use that context to give a detailed and accurate answer. Reference the documents when relevant.
-
-If the question is NOT related to the provided context (e.g., general conversation, greetings, unrelated topics), ignore the context and answer naturally using your general knowledge.
-
-Context from uploaded documents:
-{context}""")
-        
-        # Convert conversation history to LangChain messages
-        langchain_messages = [system_message]
-        for msg in conversation_history:
-            if msg['role'] == 'user':
-                langchain_messages.append(HumanMessage(content=msg['content']))
-            elif msg['role'] == 'assistant':
-                langchain_messages.append(AIMessage(content=msg['content']))
-        
-        # Get response with full conversation context and RAG
-        response = chat_llm.invoke(langchain_messages)
-        response_text = response.content if hasattr(response, 'content') else str(response)
+        # Determine model type
+        model_type = 'fine-tuned' if os.path.exists(f"./qlora_models/{model_name}") else 'huggingface'
         
         return jsonify({
             'response': response_text,
-            'sources': sources
+            'sources': sources,
+            'model_type': model_type
         }), 200
     
     except Exception as e:
@@ -523,26 +409,6 @@ def qlora_models():
         return jsonify({'models': models}), 200
     except Exception as e:
         return jsonify({'error': f'Error listing models: {str(e)}'}), 500
-
-@app.route('/api/qlora/convert', methods=['POST'])
-def qlora_convert():
-    """Convert fine-tuned model to Ollama format"""
-    try:
-        data = request.get_json()
-        model_path = data.get('model_path', '').strip()
-        
-        if not model_path:
-            return jsonify({'error': 'Model path is required'}), 400
-        
-        ollama_model_name = qlora_trainer.convert_to_ollama(model_path)
-        
-        return jsonify({
-            'message': 'Model converted successfully',
-            'ollama_model_name': ollama_model_name
-        }), 200
-    
-    except Exception as e:
-        return jsonify({'error': f'Error converting model: {str(e)}'}), 500
 
 if __name__ == '__main__':
     # Disable reloader to prevent Flask from restarting when Unsloth creates cache files

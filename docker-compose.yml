@@ -8,13 +8,15 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - FLASK_ENV=production
     volumes:
       # Persist uploads, models, and vector store
       - ./backend/uploads:/app/uploads
       - ./backend/qlora_models:/app/qlora_models
       - ./backend/faiss_index:/app/faiss_index
+      - ./backend/hf_models:/app/hf_models
+      # Hugging Face cache (models downloaded from HF)
+      - hf-cache:/root/.cache/huggingface
     networks:
       - engabusami-network
     restart: unless-stopped
@@ -55,31 +57,10 @@ services:
       timeout: 10s
       retries: 3
 
-  # Optional: Ollama service (uncomment if you want to run Ollama in Docker)
-  # ollama:
-  #   image: ollama/ollama:latest
-  #   container_name: engabusami-ollama
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama-data:/root/.ollama
-  #   networks:
-  #     - engabusami-network
-  #   restart: unless-stopped
-  #   # Uncomment for GPU support
-  #   # deploy:
-  #   #   resources:
-  #   #     reservations:
-  #   #       devices:
-  #   #         - driver: nvidia
-  #   #           count: 1
-  #   #           capabilities: [gpu]
-
 networks:
   engabusami-network:
     driver: bridge
 
-# Uncomment if using Ollama service
-# volumes:
-#   ollama-data:
+volumes:
+  hf-cache:
 

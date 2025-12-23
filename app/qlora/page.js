@@ -8,16 +8,37 @@ const QLoRAPage = () => {
   const [trainingStatus, setTrainingStatus] = useState('idle') // idle, training, completed, error
   const [trainingProgress, setTrainingProgress] = useState({ step: 0, total: 0, loss: 0 })
   const [availableModels, setAvailableModels] = useState([])
-  const [selectedBaseModel, setSelectedBaseModel] = useState('unsloth/Llama-3.2-3B-Instruct-bnb-4bit')
+  const [installedModels, setInstalledModels] = useState([])
+  const [selectedBaseModel, setSelectedBaseModel] = useState('')
+  const [customModelInput, setCustomModelInput] = useState('')
+  const [useCustomModel, setUseCustomModel] = useState(false)
   const [loraRank, setLoraRank] = useState(16)
   const [maxSteps, setMaxSteps] = useState(100)
   const [learningRate, setLearningRate] = useState(0.0002)
   const [modelName, setModelName] = useState('')
 
   useEffect(() => {
+    loadInstalledModels()
     loadAvailableModels()
     checkTrainingStatus()
   }, [])
+
+  const loadInstalledModels = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/models`)
+      if (response.ok) {
+        const data = await response.json()
+        const hfModels = (data.models || []).filter(m => m.type === 'huggingface')
+        setInstalledModels(hfModels)
+        // Set default model if available
+        if (hfModels.length > 0 && !selectedBaseModel) {
+          setSelectedBaseModel(hfModels[0].name)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading installed models:', error)
+    }
+  }
 
   const loadAvailableModels = async () => {
     try {
@@ -27,7 +48,7 @@ const QLoRAPage = () => {
         setAvailableModels(data.models || [])
       }
     } catch (error) {
-      console.error('Error loading models:', error)
+      console.error('Error loading fine-tuned models:', error)
     }
   }
 
@@ -49,6 +70,11 @@ const QLoRAPage = () => {
   const handleStartTraining = async () => {
     if (!modelName.trim()) {
       alert('Please enter a model name')
+      return
+    }
+
+    if (!selectedBaseModel.trim()) {
+      alert('Please select or enter a base model')
       return
     }
 
@@ -192,20 +218,71 @@ const QLoRAPage = () => {
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
-                  Base Model (Hugging Face Model Tag)
+                  Base Model
                 </label>
-                <input
-                  type="text"
-                  value={selectedBaseModel}
-                  onChange={(e) => setSelectedBaseModel(e.target.value)}
-                  placeholder="e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit"
-                  className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
-                  disabled={trainingStatus === 'training'}
-                />
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Paste any Unsloth-compatible model tag from Hugging Face
-                </p>
-                {selectedBaseModel.toLowerCase().includes('gguf') && (
+                <div className="mb-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
+                    <input
+                      type="radio"
+                      checked={!useCustomModel}
+                      onChange={() => setUseCustomModel(false)}
+                      className="text-purple-500"
+                      disabled={trainingStatus === 'training'}
+                    />
+                    Select from installed models
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 mt-2">
+                    <input
+                      type="radio"
+                      checked={useCustomModel}
+                      onChange={() => setUseCustomModel(true)}
+                      className="text-purple-500"
+                      disabled={trainingStatus === 'training'}
+                    />
+                    Enter custom Hugging Face model tag
+                  </label>
+                </div>
+                
+                {!useCustomModel ? (
+                  <select
+                    value={selectedBaseModel}
+                    onChange={(e) => setSelectedBaseModel(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    disabled={trainingStatus === 'training' || installedModels.length === 0}
+                  >
+                    {installedModels.length === 0 ? (
+                      <option value="">No models installed. Install models first.</option>
+                    ) : (
+                      <>
+                        <option value="">Select a model...</option>
+                        {installedModels.map((model) => (
+                          <option key={model.name} value={model.name}>
+                            {model.name}
+                          </option>
+                        ))}
+                      </>
+                    )}
+                  </select>
+                ) : (
+                  <>
+                    <input
+                      type="text"
+                      value={customModelInput}
+                      onChange={(e) => {
+                        setCustomModelInput(e.target.value)
+                        setSelectedBaseModel(e.target.value)
+                      }}
+                      placeholder="e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit"
+                      className="w-full px-4 py-2 rounded-xl border border-slate-300/50 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      disabled={trainingStatus === 'training'}
+                    />
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Paste any Unsloth-compatible model tag from Hugging Face. The model will be downloaded automatically.
+                    </p>
+                  </>
+                )}
+                
+                {selectedBaseModel && selectedBaseModel.toLowerCase().includes('gguf') && (
                   <div className="mt-2 p-3 rounded-lg bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800">
                     <p className="text-xs text-yellow-800 dark:text-yellow-200 font-medium">
                       ⚠️ Warning: GGUF models cannot be used for training!

@@ -9,7 +9,6 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-http://ollama:11434}
       - FLASK_ENV=development
       - FLASK_DEBUG=1
     volumes:
@@ -18,6 +17,9 @@ services:
       - ./backend/uploads:/app/uploads
       - ./backend/qlora_models:/app/qlora_models
       - ./backend/faiss_index:/app/faiss_index
+      - ./backend/hf_models:/app/hf_models
+      # Hugging Face cache (models downloaded from HF)
+      - hf-cache:/root/.cache/huggingface
     networks:
       - engabusami-network
     restart: unless-stopped
@@ -49,4 +51,7 @@ services:
 networks:
   engabusami-network:
     driver: bridge
+
+volumes:
+  hf-cache:
 

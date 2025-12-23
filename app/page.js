@@ -19,6 +19,7 @@ const ChatPage = () => {
   const [models, setModels] = useState([])
   const [selectedModel, setSelectedModel] = useState('')
   const [loadingModels, setLoadingModels] = useState(true)
+  const [installingModel, setInstallingModel] = useState(false)
   const messagesEndRef = useRef(null)
   const inputRef = useRef(null)
 
@@ -32,37 +33,6 @@ const ChatPage = () => {
 
   // Load available models on mount
   useEffect(() => {
-    const loadModels = async () => {
-      try {
-        const response = await fetch(`${BACKEND_URL}/api/models`)
-        if (response.ok) {
-          const data = await response.json()
-          setModels(data.models || [])
-          // Set default model if available and no saved model
-          if (data.models && data.models.length > 0 && !selectedModel) {
-            const defaultModel = data.models[0].name
-            setSelectedModel(defaultModel)
-            localStorage.setItem('selectedModel', defaultModel)
-          }
-        } else {
-          // Try to load from localStorage if API fails
-          const savedModel = localStorage.getItem('selectedModel')
-          if (savedModel) {
-            setSelectedModel(savedModel)
-          }
-        }
-      } catch (error) {
-        console.error('Error loading models:', error)
-        // Try to load from localStorage
-        const savedModel = localStorage.getItem('selectedModel')
-        if (savedModel) {
-          setSelectedModel(savedModel)
-        }
-      } finally {
-        setLoadingModels(false)
-      }
-    }
-
     // Load saved model from localStorage first
     const savedModel = localStorage.getItem('selectedModel')
     if (savedModel) {
@@ -71,6 +41,68 @@ const ChatPage = () => {
 
     loadModels()
   }, [])
+
+  const installModel = async (modelName) => {
+    if (!modelName.trim()) return
+    
+    setInstallingModel(true)
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/models/install`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_name: modelName, load_in_4bit: true })
+      })
+      
+      if (response.ok) {
+        const data = await response.json()
+        alert(`Model installed successfully: ${modelName}`)
+        // Reload models list
+        await loadModels()
+        // Select the newly installed model
+        setSelectedModel(modelName)
+        localStorage.setItem('selectedModel', modelName)
+      } else {
+        const errorData = await response.json()
+        alert(`Error installing model: ${errorData.error || 'Unknown error'}`)
+      }
+    } catch (error) {
+      console.error('Error installing model:', error)
+      alert(`Error installing model: ${error.message}`)
+    } finally {
+      setInstallingModel(false)
+    }
+  }
+
+  const loadModels = async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/models`)
+      if (response.ok) {
+        const data = await response.json()
+        setModels(data.models || [])
+        // Set default model if available and no saved model
+        if (data.models && data.models.length > 0 && !selectedModel) {
+          const defaultModel = data.models[0].name
+          setSelectedModel(defaultModel)
+          localStorage.setItem('selectedModel', defaultModel)
+        }
+      } else {
+        // Try to load from localStorage if API fails
+        const savedModel = localStorage.getItem('selectedModel')
+        if (savedModel) {
+          setSelectedModel(savedModel)
+        }
+      }
+    } catch (error) {
+      console.error('Error loading models:', error)
+      // Try to load from localStorage
+      const savedModel = localStorage.getItem('selectedModel')
+      if (savedModel) {
+        setSelectedModel(savedModel)
+      }
+    } finally {
+      setLoadingModels(false)
+    }
+  }
 
   const handleSend = async (e) => {
     e.preventDefault()
@@ -111,7 +143,7 @@ const ChatPage = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
           message: userMessage.text,
-          model: selectedModel || 'qwen3:14b',
+          model: selectedModel || 'unsloth/Llama-3.2-3B-Instruct-bnb-4bit',
           conversation_history: conversationHistory
         })
       })
@@ -148,7 +180,7 @@ const ChatPage = () => {
       console.error('Error sending message:', error)
       const errorMessage = {
         id: messages.length + 2,
-        text: `Error: ${error.message}. Please make sure the Flask server is running and Ollama is set up.`,
+        text: `Error: ${error.message}. Please make sure the Flask server is running and a model is installed.`,
         sender: 'bot',
         timestamp: new Date()
       }
@@ -205,22 +237,60 @@ const ChatPage = () => {
                     setSelectedModel(e.target.value)
                     localStorage.setItem('selectedModel', e.target.value)
                   }}
-                  disabled={loadingModels || isLoading}
-                  className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={loadingModels || isLoading || installingModel}
+                className="bg-transparent text-sm font-medium text-slate-700 dark:text-slate-200 focus:outline-none border-none cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed min-w-[200px]"
                 >
                   {loadingModels ? (
                     <option>Loading...</option>
                   ) : models.length === 0 ? (
-                    <option value="">No models</option>
+                    <option value="">No models installed</option>
                   ) : (
-                    models.map((model) => (
-                      <option key={model.name} value={model.name}>
-                        {model.name}
-                      </option>
-                    ))
+                    <>
+                      {models.filter(m => m.type === 'huggingface').length > 0 && (
+                        <optgroup label="Hugging Face Models">
+                          {models.filter(m => m.type === 'huggingface').map((model) => (
+                            <option key={model.name} value={model.name}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {models.filter(m => m.type === 'fine-tuned').length > 0 && (
+                        <optgroup label="Fine-Tuned Models">
+                          {models.filter(m => m.type === 'fine-tuned').map((model) => (
+                            <option key={model.name} value={model.name}>
+                              {model.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </>
                   )}
                 </select>
               </div>
+              {/* Install Model Button */}
+              <button
+                onClick={() => {
+                  const modelName = prompt('Enter Hugging Face model name (e.g., unsloth/Llama-3.2-3B-Instruct-bnb-4bit):')
+                  if (modelName) {
+                    installModel(modelName)
+                  }
+                }}
+                disabled={installingModel}
+                className="p-2 rounded-xl bg-slate-100/80 dark:bg-slate-800/80 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 border border-slate-200/50 dark:border-slate-700/50 transition-all duration-200 hover:scale-105 hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+                title={installingModel ? "Installing model..." : "Install Model"}
+              >
+                {installingModel ? (
+                  <svg className="w-5 h-5 text-slate-600 dark:text-slate-300 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                ) : (
+                  <svg className="w-5 h-5 text-slate-600 dark:text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                )}
+              </button>
             <div className="flex items-center gap-2">
               <Link
                 href="/qlora"

@@ -34,6 +34,46 @@ app.config['MAX_CONTENT_LENGTH'] = MAX_FILE_SIZE
 # Create uploads directory if it doesn't exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+def verify_gpu():
+    """Verify GPU availability and log GPU information"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_count = torch.cuda.device_count()
+            print(f"[GPU Check] CUDA is available. Found {gpu_count} GPU(s)")
+            
+            for i in range(gpu_count):
+                gpu_name = torch.cuda.get_device_name(i)
+                gpu_props = torch.cuda.get_device_properties(i)
+                total_memory = gpu_props.total_memory / (1024**3)
+                print(f"[GPU Check] GPU {i}: {gpu_name} ({total_memory:.2f} GB)")
+                
+                # Check if it's NVIDIA (Intel GPUs typically show as "Intel" or similar)
+                if "nvidia" in gpu_name.lower() or "geforce" in gpu_name.lower() or "rtx" in gpu_name.lower() or "gtx" in gpu_name.lower():
+                    print(f"[GPU Check] ✓ GPU {i} is NVIDIA - This is the correct GPU to use")
+                elif "intel" in gpu_name.lower():
+                    print(f"[GPU Check] ⚠ GPU {i} is Intel - This should NOT be used")
+            
+            # Check NVIDIA_VISIBLE_DEVICES environment variable
+            nvidia_visible = os.environ.get('NVIDIA_VISIBLE_DEVICES', 'not set')
+            print(f"[GPU Check] NVIDIA_VISIBLE_DEVICES={nvidia_visible}")
+            
+            # The visible GPU will appear as device 0 inside container
+            current_device = torch.cuda.current_device()
+            current_gpu_name = torch.cuda.get_device_name(current_device)
+            print(f"[GPU Check] Current device: {current_device} ({current_gpu_name})")
+            
+            return True
+        else:
+            print("[GPU Check] ⚠ CUDA is not available. GPU operations will fail.")
+            return False
+    except Exception as e:
+        print(f"[GPU Check] Error checking GPU: {e}")
+        return False
+
+# Verify GPU on startup
+verify_gpu()
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 

@@ -22,13 +22,14 @@ services:
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - enable NVIDIA GPU access
+    # GPU support - enable NVIDIA GPU access (GPU 1 only)
+    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 is exposed to container
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: all
+              count: 1
               capabilities: [gpu]
     # Alternative: Use runtime instead of deploy (for older Docker Compose versions)
     # Uncomment the line below and comment out the deploy section if using Docker Compose v2.3 or earlier

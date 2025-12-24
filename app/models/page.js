@@ -9,10 +9,10 @@ const ModelsPage = () => {
   const [loading, setLoading] = useState(true)
   const [installing, setInstalling] = useState(false)
   const [deleting, setDeleting] = useState({})
-  const [exporting, setExporting] = useState({})
+  // const [exporting, setExporting] = useState({})
   const [newModelName, setNewModelName] = useState('')
-  const [exportPath, setExportPath] = useState({})
-  const [showExportModal, setShowExportModal] = useState({})
+  // const [exportPath, setExportPath] = useState({})
+  // const [showExportModal, setShowExportModal] = useState({})
 
   useEffect(() => {
     loadModels()
@@ -102,50 +102,50 @@ const ModelsPage = () => {
     }
   }
 
-  const handleExport = async (modelName, modelType) => {
-    if (modelType === 'huggingface') {
-      alert('ℹ️ Hugging Face models are stored in the Hugging Face cache.\n\nTo export them, use the Hugging Face CLI or download directly from Hugging Face Hub.\n\nFine-tuned models can be exported using this interface.')
-      return
-    }
+  // const handleExport = async (modelName, modelType) => {
+  //   if (modelType === 'huggingface') {
+  //     alert('ℹ️ Hugging Face models are stored in the Hugging Face cache.\n\nTo export them, use the Hugging Face CLI or download directly from Hugging Face Hub.\n\nFine-tuned models can be exported using this interface.')
+  //     return
+  //   }
 
-    setShowExportModal({ ...showExportModal, [modelName]: true })
-    setExportPath({ ...exportPath, [modelName]: '' })
-  }
+  //   setShowExportModal({ ...showExportModal, [modelName]: true })
+  //   setExportPath({ ...exportPath, [modelName]: '' })
+  // }
 
-  const confirmExport = async (modelName) => {
-    const path = exportPath[modelName]?.trim()
-    if (!path) {
-      alert('Please enter an export path')
-      return
-    }
+  // const confirmExport = async (modelName) => {
+  //   const path = exportPath[modelName]?.trim()
+  //   if (!path) {
+  //     alert('Please enter an export path')
+  //     return
+  //   }
 
-    setExporting({ ...exporting, [modelName]: true })
-    try {
-      const response = await fetch(`${BACKEND_URL}/api/models/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          model_name: modelName,
-          export_path: path
-        })
-      })
+  //   setExporting({ ...exporting, [modelName]: true })
+  //   try {
+  //     const response = await fetch(`${BACKEND_URL}/api/models/export`, {
+  //       method: 'POST',
+  //       headers: { 'Content-Type': 'application/json' },
+  //       body: JSON.stringify({ 
+  //         model_name: modelName,
+  //         export_path: path
+  //       })
+  //     })
 
-      if (response.ok) {
-        const data = await response.json()
-        alert(`✅ ${data.message || 'Model exported successfully!'}\n\nExported to: ${data.export_path || path}`)
-        setShowExportModal({ ...showExportModal, [modelName]: false })
-        setExportPath({ ...exportPath, [modelName]: '' })
-      } else {
-        const errorData = await response.json()
-        alert(`❌ Error: ${errorData.error || 'Failed to export model'}`)
-      }
-    } catch (error) {
-      console.error('Error exporting model:', error)
-      alert(`❌ Error exporting model: ${error.message}`)
-    } finally {
-      setExporting({ ...exporting, [modelName]: false })
-    }
-  }
+  //     if (response.ok) {
+  //       const data = await response.json()
+  //       alert(`✅ ${data.message || 'Model exported successfully!'}\n\nExported to: ${data.export_path || path}`)
+  //       setShowExportModal({ ...showExportModal, [modelName]: false })
+  //       setExportPath({ ...exportPath, [modelName]: '' })
+  //     } else {
+  //       const errorData = await response.json()
+  //       alert(`❌ Error: ${errorData.error || 'Failed to export model'}`)
+  //     }
+  //   } catch (error) {
+  //     console.error('Error exporting model:', error)
+  //     alert(`❌ Error exporting model: ${error.message}`)
+  //   } finally {
+  //     setExporting({ ...exporting, [modelName]: false })
+  //   }
+  // }
 
   const fineTunedModels = models.filter(m => m.type === 'fine-tuned')
   const huggingFaceModels = models.filter(m => m.type === 'huggingface')
@@ -167,7 +167,8 @@ const ModelsPage = () => {
                   Model Manager
                 </h1>
                 <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
-                  Install, manage, and export your AI models
+                  Install and manage your AI models
+                  {/* Install, manage, and export your AI models */}
                 </p>
               </div>
             </div>
@@ -254,7 +255,7 @@ const ModelsPage = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
+                      {/* <button
                         onClick={() => handleExport(model.name, model.type)}
                         className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
                         title="Export model"
@@ -263,7 +264,7 @@ const ModelsPage = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
                         Export
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => handleDelete(model.name, model.type)}
                         disabled={deleting[model.name]}
@@ -301,7 +302,7 @@ const ModelsPage = () => {
                       </span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button
+                      {/* <button
                         onClick={() => handleExport(model.name, model.type)}
                         className="px-4 py-2 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-lg font-medium transition-all duration-200 hover:scale-105 active:scale-95 text-sm"
                         title="Export model (info only for HF models)"
@@ -310,7 +311,7 @@ const ModelsPage = () => {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                         Info
-                      </button>
+                      </button> */}
                       <button
                         onClick={() => handleDelete(model.name, model.type)}
                         disabled={deleting[model.name]}
@@ -356,9 +357,10 @@ const ModelsPage = () => {
               About Model Management
             </h3>
             <ul className="space-y-2 text-sm text-blue-800 dark:text-blue-200">
-              <li>• <strong>Fine-Tuned Models:</strong> These are models you've trained yourself. You can export them to any location on your PC.</li>
+              <li>• <strong>Fine-Tuned Models:</strong> These are models you've trained yourself.</li>
+              {/* <li>• <strong>Fine-Tuned Models:</strong> These are models you've trained yourself. You can export them to any location on your PC.</li> */}
               <li>• <strong>Hugging Face Models:</strong> These are pre-trained models from Hugging Face Hub. They're stored in the Hugging Face cache.</li>
-              <li>• <strong>Export:</strong> Fine-tuned models can be exported to a folder on your computer for use elsewhere.</li>
+              {/* <li>• <strong>Export:</strong> Fine-tuned models can be exported to a folder on your computer for use elsewhere.</li> */}
               <li>• <strong>Delete:</strong> Fine-tuned models are permanently deleted. Hugging Face models are only removed from the index (cache remains).</li>
             </ul>
           </div>
@@ -366,7 +368,7 @@ const ModelsPage = () => {
       </div>
 
       {/* Export Modal */}
-      {Object.keys(showExportModal).map(modelName => showExportModal[modelName] && (
+      {/* {Object.keys(showExportModal).map(modelName => showExportModal[modelName] && (
         <div key={modelName} className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl max-w-md w-full p-6 border border-slate-200 dark:border-slate-700">
             <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 mb-4">
@@ -402,7 +404,7 @@ const ModelsPage = () => {
             </div>
           </div>
         </div>
-      ))}
+      ))} */}
     </div>
   )
 }

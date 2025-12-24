@@ -9,8 +9,9 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
-      - NVIDIA_VISIBLE_DEVICES=1
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # GPU support is optional - uncomment below and install NVIDIA Container Toolkit to enable
+      # - NVIDIA_VISIBLE_DEVICES=1
+      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       # Persist uploads, models, and vector store
       - ./backend/uploads:/app/uploads
@@ -22,7 +23,7 @@ services:
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - REQUIRED: NVIDIA Container Toolkit must be installed
+    # GPU support - OPTIONAL: Uncomment below if NVIDIA Container Toolkit is installed
     # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 (NVIDIA) is exposed to container
     # 
     # INSTALLATION REQUIRED:
@@ -31,13 +32,13 @@ services:
     # 
     # Verify installation: ./check-gpu-setup.sh
     # 
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s

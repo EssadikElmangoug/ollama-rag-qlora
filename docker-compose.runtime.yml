@@ -1,3 +1,8 @@
+# Alternative docker-compose configuration using runtime method
+# Use this if the deploy method fails with "could not select device driver nvidia"
+# 
+# Usage: docker-compose -f docker-compose.runtime.yml up -d
+
 services:
   # Backend Flask API
   backend:
@@ -12,31 +17,16 @@ services:
       - NVIDIA_VISIBLE_DEVICES=1
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
-      # Persist uploads, models, and vector store
       - ./backend/uploads:/app/uploads
       - ./backend/qlora_models:/app/qlora_models
       - ./backend/faiss_index:/app/faiss_index
       - ./backend/hf_models:/app/hf_models
-      # Hugging Face cache (models downloaded from HF)
       - hf-cache:/root/.cache/huggingface
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - enable NVIDIA GPU access (GPU 1 only)
-    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 is exposed to container
-    # 
-    # Method 1: Use deploy section (Docker Compose v2.4+, requires NVIDIA Container Toolkit)
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-    # 
-    # Method 2: Alternative - Use runtime (if deploy method fails)
-    # If you get "could not select device driver nvidia" error, uncomment below and comment out deploy section:
-    # runtime: nvidia
+    # Use runtime method instead of deploy (for systems without NVIDIA Container Toolkit configured)
+    runtime: nvidia
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s

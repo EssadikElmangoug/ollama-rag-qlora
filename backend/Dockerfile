@@ -1,6 +1,7 @@
 # Backend Dockerfile for Flask API with GPU support
-# Using newer CUDA image (12.1.0 is deprecated, using 12.4.0)
-FROM nvidia/cuda:12.4.0-cudnn-runtime-ubuntu22.04
+# Using CUDA 12.1.0 with cuDNN 8 runtime for Ubuntu 22.04
+# Note: 12.4.0 tags are not available, using stable 12.1.0 version
+FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
 
 # Set environment variables
 ENV DEBIAN_FRONTEND=noninteractive

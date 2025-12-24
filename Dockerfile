@@ -10,7 +10,11 @@ COPY package.json package-lock.json* ./
 
 # Install dependencies
 # npm ci is faster and more reliable when package-lock.json is in sync
-RUN npm ci
+# Configure npm with increased retries and timeouts for network resilience
+RUN npm config set fetch-retries 10 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm ci
 
 # Rebuild the source code only when needed
 FROM base AS builder

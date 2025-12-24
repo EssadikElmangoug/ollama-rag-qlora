@@ -23,10 +23,15 @@ services:
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - enable NVIDIA GPU access (GPU 1 only)
-    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 is exposed to container
+    # GPU support - REQUIRED: NVIDIA Container Toolkit must be installed
+    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 (NVIDIA) is exposed to container
     # 
-    # Method 1: Use deploy section (Docker Compose v2.4+, requires NVIDIA Container Toolkit)
+    # INSTALLATION REQUIRED:
+    #   Run: sudo ./install-gpu-support.sh
+    #   Or see: setup-nvidia-docker.md
+    # 
+    # Verify installation: ./check-gpu-setup.sh
+    # 
     deploy:
       resources:
         reservations:
@@ -34,10 +39,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    # 
-    # Method 2: Alternative - Use runtime (if deploy method fails)
-    # If you get "could not select device driver nvidia" error, uncomment below and comment out deploy section:
-    # runtime: nvidia
     environment:
       - FLASK_ENV=development
       - FLASK_DEBUG=1

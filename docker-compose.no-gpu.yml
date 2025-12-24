@@ -1,5 +1,10 @@
+# Docker Compose configuration WITHOUT GPU support
+# Use this if NVIDIA Container Toolkit is not installed
+# 
+# Usage: docker-compose -f docker-compose.no-gpu.yml up -d
+
 services:
-  # Backend Flask API
+  # Backend Flask API (CPU only - no GPU)
   backend:
     build:
       context: ./backend
@@ -9,35 +14,17 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
-      - NVIDIA_VISIBLE_DEVICES=1
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # GPU-related environment variables removed for CPU-only mode
     volumes:
-      # Persist uploads, models, and vector store
       - ./backend/uploads:/app/uploads
       - ./backend/qlora_models:/app/qlora_models
       - ./backend/faiss_index:/app/faiss_index
       - ./backend/hf_models:/app/hf_models
-      # Hugging Face cache (models downloaded from HF)
       - hf-cache:/root/.cache/huggingface
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - REQUIRED: NVIDIA Container Toolkit must be installed
-    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 (NVIDIA) is exposed to container
-    # 
-    # INSTALLATION REQUIRED:
-    #   Run: sudo ./install-gpu-support.sh
-    #   Or see: setup-nvidia-docker.md
-    # 
-    # Verify installation: ./check-gpu-setup.sh
-    # 
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
+    # NO GPU configuration - runs on CPU only
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s

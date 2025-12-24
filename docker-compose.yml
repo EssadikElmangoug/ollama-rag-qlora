@@ -9,9 +9,9 @@ services:
       - "5000:5000"
     environment:
       - FLASK_ENV=production
-      # GPU support is optional - uncomment below and install NVIDIA Container Toolkit to enable
-      # - NVIDIA_VISIBLE_DEVICES=1
-      # - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # GPU support - use all available GPUs (or set to specific GPU number like "0" or "1")
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       # Persist uploads, models, and vector store
       - ./backend/uploads:/app/uploads
@@ -23,22 +23,26 @@ services:
     networks:
       - engabusami-network
     restart: unless-stopped
-    # GPU support - OPTIONAL: Uncomment below if NVIDIA Container Toolkit is installed
-    # NVIDIA_VISIBLE_DEVICES=1 ensures only GPU 1 (NVIDIA) is exposed to container
+    # GPU support using runtime method (works better on Windows/WSL2)
+    # This requires NVIDIA Container Toolkit to be installed
     # 
-    # INSTALLATION REQUIRED:
-    #   Run: sudo ./install-gpu-support.sh
-    #   Or see: setup-nvidia-docker.md
+    # For Windows/WSL2 setup:
+    #   1. Open WSL2 terminal
+    #   2. Run: curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+    #   3. Run: curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+    #   4. Run: sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit
+    #   5. Run: sudo nvidia-ctk runtime configure --runtime=docker
+    #   6. Restart Docker Desktop
     # 
-    # Verify installation: ./check-gpu-setup.sh
-    # 
+    # Alternative: Use deploy method (uncomment below and comment out runtime line)
     # deploy:
     #   resources:
     #     reservations:
     #       devices:
     #         - driver: nvidia
-    #           count: 1
+    #           count: all
     #           capabilities: [gpu]
+    runtime: nvidia
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 30s

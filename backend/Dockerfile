@@ -27,9 +27,39 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir -r requirements.txt
+# Upgrade pip with extended timeout
+RUN pip3 install --no-cache-dir --upgrade pip
+
+# Set environment variables for pip network resilience
+ENV PIP_DEFAULT_TIMEOUT=900
+ENV PIP_FIND_LINKS=""
+
+# Install dependencies with extended timeout and retry logic
+# Using a shell script for better error handling and retries
+# Prefer binary packages to avoid compilation and reduce download issues
+RUN MAX_ATTEMPTS=5; \
+    ATTEMPT=1; \
+    while [ $ATTEMPT -le $MAX_ATTEMPTS ]; do \
+        echo "=== Installation attempt $ATTEMPT of $MAX_ATTEMPTS ==="; \
+        if pip3 install --no-cache-dir \
+            --timeout=900 \
+            --default-timeout=900 \
+            --prefer-binary \
+            -r requirements.txt; then \
+            echo "=== Installation successful ==="; \
+            exit 0; \
+        else \
+            echo "=== Attempt $ATTEMPT failed ==="; \
+            if [ $ATTEMPT -lt $MAX_ATTEMPTS ]; then \
+                WAIT_TIME=$((ATTEMPT * 15)); \
+                echo "Waiting ${WAIT_TIME} seconds before retry..."; \
+                sleep ${WAIT_TIME}; \
+            fi; \
+            ATTEMPT=$((ATTEMPT + 1)); \
+        fi; \
+    done; \
+    echo "=== All installation attempts failed ==="; \
+    exit 1
 
 # Copy backend code
 COPY . .

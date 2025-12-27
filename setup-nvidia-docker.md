@@ -93,3 +93,5 @@ docker exec engabusami-backend nvidia-smi
    nvidia-smi
    ```
 
+
+

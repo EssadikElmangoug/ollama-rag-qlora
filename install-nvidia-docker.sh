@@ -65,3 +65,5 @@ echo "=== Installation Complete ==="
 echo "To use GPU support, run: docker-compose up -d"
 echo "To use CPU-only mode, run: docker-compose -f docker-compose.no-gpu.yml up -d"
 
+
+

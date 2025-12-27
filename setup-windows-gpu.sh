@@ -84,3 +84,5 @@ echo "If that works, you can start your application:"
 echo "  docker-compose up -d"
 echo ""
 
+
+
